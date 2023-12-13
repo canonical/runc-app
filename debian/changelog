@@ -1,0 +1,5 @@
+runc-app (1.1.10-0ubuntu1) noble; urgency=medium
+
+  * Initial release. See LP #2022390.
+
+ -- Lucas Kanashiro <kanashiro@ubuntu.com>  Wed, 13 Dec 2023 14:05:31 -0300

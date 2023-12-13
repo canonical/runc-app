@@ -1,0 +1,37 @@
+#!/usr/bin/make -f
+
+# Uncomment this to turn on verbose mode.
+#export DH_VERBOSE=1
+
+export DH_GOPKG := github.com/opencontainers/runc
+TAGS=apparmor seccomp selinux ambient
+VERSION=$(shell dpkg-parsechangelog -SVersion)
+
+# Build with Golang 1.21
+export PATH := /usr/lib/go-1.21/bin:$(PATH)
+
+export GO111MODULE := off
+export GOCACHE := $(CURDIR)/.cache
+
+%:
+	dh $@ --buildsystem=golang --with=golang --builddirectory=_build
+
+override_dh_auto_configure:
+	cd man && ./md2man-all.sh
+	dh_auto_configure
+	## Remove extra license files:
+	$(RM) -v \
+            _build/src/$(DH_GOPKG)/vendor/github.com/docker/docker/*/*/LICENSE* \
+        ;
+
+override_dh_auto_build:
+	dh_auto_build -- -tags "$(TAGS)" -ldflags "-X main.version=$(VERSION)"
+
+override_dh_auto_test:
+	DH_GOLANG_EXCLUDES="libcontainer/integration" \
+        dh_auto_test -- -tags "$(TAGS)"
+
+override_dh_auto_install:
+	dh_auto_install
+	# Do not ship the library code
+	$(RM) -vrf debian/runc/usr/share/gocode

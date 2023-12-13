@@ -1,0 +1,17 @@
+## Remove generated man pages:
+man/man8/*
+
+## Drop hanging test (introduced in 0.0.9).
+## https://github.com/opencontainers/runc/issues/692
+libcontainer/nsenter/nsenter_test.go
+
+## Failing tests:
+
+## Privileged tests:
+### couldn't get cgroup root: mountpoint for cgroup not found
+libcontainer/cgroups/fs/apply_raw_test.go
+
+### FAIL: TestXattr (0.00s)
+###     xattr_test.go:26: Success
+###     xattr_test.go:30: failed
+libcontainer/xattr/xattr_test.go

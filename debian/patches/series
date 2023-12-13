@@ -1,0 +1,9 @@
+0001-skip-test-hugetlb_test.go.patch
+0002-skip-privileged-test-factory_linux_test.go.patch
+0004-skip-test-cgroups_test.go.patch
+0005-skip-integration-when-no-dev-kmsg.patch
+0006-skip-test-paths_test.go.patch
+0007-skip-test-manager_test.go.patch
+0008-tests-enable-seccomp-default-action-tests-on-arm.patch
+0009-skip-test-file_test.go.patch
+0010-export-blockIODevice.patch

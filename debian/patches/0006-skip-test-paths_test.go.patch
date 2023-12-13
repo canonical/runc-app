@@ -1,0 +1,29 @@
+From: Shengjing Zhu <zhsj@debian.org>
+Date: Wed, 15 Dec 2021 01:14:52 +0800
+Subject: skip test: paths_test.go
+
+Fail when cgroups is not mounted
+---
+ libcontainer/cgroups/fs/paths_test.go | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/libcontainer/cgroups/fs/paths_test.go b/libcontainer/cgroups/fs/paths_test.go
+index 3a4d45f..2a77f6d 100644
+--- a/libcontainer/cgroups/fs/paths_test.go
++++ b/libcontainer/cgroups/fs/paths_test.go
+@@ -10,6 +10,7 @@ import (
+ )
+ 
+ func TestInvalidCgroupPath(t *testing.T) {
++	t.Skip("need to mount cgroupfs")
+ 	if cgroups.IsCgroup2UnifiedMode() {
+ 		t.Skip("cgroup v2 is not supported")
+ 	}
+@@ -91,6 +92,7 @@ func TestInvalidCgroupPath(t *testing.T) {
+ }
+ 
+ func TestTryDefaultCgroupRoot(t *testing.T) {
++	t.Skip("need to mount cgroupfs")
+ 	res := tryDefaultCgroupRoot()
+ 	exp := defaultCgroupRoot
+ 	if cgroups.IsCgroup2UnifiedMode() {

@@ -1,0 +1,21 @@
+From: Shengjing Zhu <zhsj@debian.org>
+Date: Sat, 23 Jan 2021 22:29:01 +0800
+Subject: skip test: cgroups_test.go
+
+Fail when cgroups is not mounted
+---
+ libcontainer/cgroups/cgroups_test.go | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/libcontainer/cgroups/cgroups_test.go b/libcontainer/cgroups/cgroups_test.go
+index b31412f..90b69ee 100644
+--- a/libcontainer/cgroups/cgroups_test.go
++++ b/libcontainer/cgroups/cgroups_test.go
+@@ -5,6 +5,7 @@ import (
+ )
+ 
+ func TestParseCgroups(t *testing.T) {
++	t.Skip("need to mount cgroupfs")
+ 	cgroups, err := ParseCgroupFile("/proc/self/cgroup")
+ 	if err != nil {
+ 		t.Fatal(err)

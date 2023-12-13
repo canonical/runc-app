@@ -1,0 +1,24 @@
+From: Shengjing Zhu <zhsj@debian.org>
+Date: Thu, 4 Feb 2021 17:35:38 +0800
+Subject: skip integration when no /dev/kmsg
+
+By default, privileged lxc container doesn't have /dev/kmsg
+---
+ tests/integration/dev.bats | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/tests/integration/dev.bats b/tests/integration/dev.bats
+index 2433157..e7c91c7 100644
+--- a/tests/integration/dev.bats
++++ b/tests/integration/dev.bats
+@@ -73,6 +73,10 @@ function teardown() {
+ @test "runc run [device cgroup allow rw char device]" {
+ 	requires root
+ 
++	if [[ ! -c /dev/kmsg ]]; then
++		skip "no /dev/kmsg"
++	fi
++
+ 	update_config ' .linux.resources.devices = [{"allow": false, "access": "rwm"},{"allow": true, "type": "c", "major": 1, "minor": 11, "access": "rw"}]
+ 			| .linux.devices = [{"path": "/dev/kmsg", "type": "c", "major": 1, "minor": 11}]
+ 			| .process.args |= ["sh"]

@@ -1,0 +1,7 @@
+Tests: basic-smoke
+Depends: busybox-static, @
+Restrictions: allow-stderr, isolation-machine, needs-root
+
+Test-Command: /usr/bin/dh_golang_autopkgtest
+Depends: @, @builddeps@, dh-golang
+Restrictions: allow-stderr, isolation-machine

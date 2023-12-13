@@ -1,0 +1,22 @@
+From: Shengjing Zhu <zhsj@debian.org>
+Date: Wed, 29 Mar 2023 17:30:22 +0800
+Subject: skip test: file_test.go
+
+Fail when cgroups is not mounted
+---
+ libcontainer/cgroups/file_test.go | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/libcontainer/cgroups/file_test.go b/libcontainer/cgroups/file_test.go
+index 94f1a99..98cae47 100644
+--- a/libcontainer/cgroups/file_test.go
++++ b/libcontainer/cgroups/file_test.go
+@@ -41,6 +41,8 @@ func TestWriteCgroupFileHandlesInterrupt(t *testing.T) {
+ }
+ 
+ func TestOpenat2(t *testing.T) {
++	t.Skip("need to mount cgroupfs")
++
+ 	if !IsCgroup2UnifiedMode() {
+ 		// The reason is many test cases below test opening files from
+ 		// the top-level directory, where cgroup v1 has no files.

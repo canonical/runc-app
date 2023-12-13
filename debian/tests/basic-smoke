@@ -1,0 +1,34 @@
+#!/bin/bash
+set -Eeuo pipefail
+set -x
+
+runc --version
+
+tempDir="$(mktemp -d)"
+trap 'rm -rf "$tempDir"' EXIT
+
+# build up rootfs with busybox
+busybox="$(which busybox)" # from busybox-static
+mkdir "$tempDir/rootfs"
+cp -a "$busybox" "$tempDir/rootfs/"
+
+# rough "rootfs" smoke test (makes sure "busybox" is actually static)
+chroot "$tempDir/rootfs" /busybox true
+
+# make a config.json file for our "bundle"
+runc spec --bundle "$tempDir"
+
+# edit the default command to something we can actually run with our rootfs
+grep '"sh"' "$tempDir/config.json"
+sed -i 's@"sh"@"/busybox","echo","success"@g' "$tempDir/config.json"
+grep '"/busybox","echo","success"' "$tempDir/config.json"
+# and disable the TTY
+grep '"terminal": true,' "$tempDir/config.json"
+sed -i 's/"terminal": true,/"terminal": false,/g' "$tempDir/config.json"
+grep '"terminal": false,' "$tempDir/config.json"
+
+# run it and capture the output
+output="$(runc run --bundle "$tempDir" "test-$$-$RANDOM")"
+
+# ensure the output was exactly what we expected
+[ "$output" = 'success' ]

@@ -1,0 +1,21 @@
+From: Shengjing Zhu <zhsj@debian.org>
+Date: Wed, 15 Dec 2021 01:16:00 +0800
+Subject: skip test: manager_test.go
+
+Fail when cgroups is not mounted
+---
+ libcontainer/cgroups/manager/manager_test.go | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/libcontainer/cgroups/manager/manager_test.go b/libcontainer/cgroups/manager/manager_test.go
+index 6f0c070..fe07a47 100644
+--- a/libcontainer/cgroups/manager/manager_test.go
++++ b/libcontainer/cgroups/manager/manager_test.go
+@@ -14,6 +14,7 @@ import (
+ // This tests either v1 or v2 fs cgroup manager, depending on which
+ // cgroup version is available.
+ func TestNilResources(t *testing.T) {
++	t.Skip("need to mount cgroupfs")
+ 	testNilResources(t, false)
+ }
+ 

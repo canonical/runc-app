@@ -1,0 +1,26 @@
+Source: runc-app
+Section: devel
+Priority: optional
+Maintainer: Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>
+Build-Depends: debhelper-compat (= 12),
+               dh-golang,
+               go-md2man,
+               golang-1.21-go,
+               libapparmor-dev,
+               libseccomp-dev,
+               pkg-config,
+               protobuf-compiler
+Standards-Version: 4.6.2
+Homepage: https://github.com/opencontainers/runc
+Vcs-Git: https://github.com/canonical/runc-app.git
+Vcs-Browser: https://github.com/canonical/runc-app
+Rules-Requires-Root: no
+
+Package: runc
+Architecture: any
+Depends: ${misc:Depends}, ${shlibs:Depends}
+Built-Using: ${misc:Built-Using}
+Description: Open Container Project - runtime
+ "runc" is a command line client for running applications packaged according
+ to the Open Container Format (OCF) and is a compliant implementation of
+ the Open Container Project specification.
