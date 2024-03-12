@@ -35,3 +35,6 @@ override_dh_auto_install:
 	dh_auto_install
 	# Do not ship the library code
 	$(RM) -vrf debian/runc/usr/share/gocode
+
+override_dh_dwz:
+	# do not call dh_dwz to avoid "dwz: Too few files for multifile optimization"
