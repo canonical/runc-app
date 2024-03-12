@@ -1,3 +1,9 @@
+runc-app (1.1.12-0ubuntu2~20.04.1) focal; urgency=medium
+
+  * Backport version from Noble to Focal (LP: #2040460, #2022390).
+
+ -- Lucas Kanashiro <kanashiro@ubuntu.com>  Tue, 12 Mar 2024 17:08:06 -0300
+
 runc-app (1.1.12-0ubuntu1) noble; urgency=medium
 
   * New upstream release (LP: #2051918).
