@@ -1,6 +1,7 @@
 runc-app (1.1.12-0ubuntu2~20.04.1) focal; urgency=medium
 
   * Backport version from Noble to Focal (LP: #2040460, #2022390).
+    - d/rules: override dh_dwz to do nothing to avoid build error.
 
  -- Lucas Kanashiro <kanashiro@ubuntu.com>  Tue, 12 Mar 2024 17:08:06 -0300
 
