@@ -1,3 +1,10 @@
+runc-app (1.1.12-0ubuntu4~20.04.1) focal; urgency=medium
+
+  * Backport from oracular to focal. (LP: #2040461)
+    - d/rules: override dh_dwz to do nothing to avoid build error.
+
+ -- Athos Ribeiro <athos.ribeiro@canonical.com>  Mon, 14 Oct 2024 17:47:08 -0300
+
 runc-app (1.1.12-0ubuntu4) oracular-proposed; urgency=medium
 
   * LP: #2076340: No-change rebuild to pick up changed build flags on
