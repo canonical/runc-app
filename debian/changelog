@@ -1,9 +1,23 @@
-runc-app (1.1.12-0ubuntu2~20.04.1) focal; urgency=medium
+runc-app (1.1.12-0ubuntu4) oracular-proposed; urgency=medium
 
-  * Backport version from Noble to Focal (LP: #2040460, #2022390).
-    - d/rules: override dh_dwz to do nothing to avoid build error.
+  * LP: #2076340: No-change rebuild to pick up changed build flags on
+    ppc64el and s390x.
 
- -- Lucas Kanashiro <kanashiro@ubuntu.com>  Tue, 12 Mar 2024 17:08:06 -0300
+ -- Matthias Klose <doko@ubuntu.com>  Thu, 08 Aug 2024 14:55:51 +0200
+
+runc-app (1.1.12-0ubuntu3) noble; urgency=medium
+
+  * Build with Go 1.22.
+    - d/control: b-d on golang-1.22-go instead of golang-1.21-go
+    - d/rules: add Go 1.22 to $PATH
+
+ -- Lucas Kanashiro <kanashiro@ubuntu.com>  Wed, 17 Apr 2024 16:52:45 -0300
+
+runc-app (1.1.12-0ubuntu2) noble; urgency=high
+
+  * No change rebuild for 64-bit time_t and frame pointers.
+
+ -- Julian Andres Klode <juliank@ubuntu.com>  Mon, 08 Apr 2024 18:18:47 +0200
 
 runc-app (1.1.12-0ubuntu1) noble; urgency=medium
 
