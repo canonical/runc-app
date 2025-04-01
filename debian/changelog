@@ -1,3 +1,13 @@
+runc-app (1.2.5-0ubuntu1~20.04.1) focal; urgency=medium
+
+  * Backport from plucky to focal (LP: #2085187)
+  * d/{rules,control}: use golang 1.21 due to imcompatibilities with libc
+    2.31. https://github.com/opencontainers/runc/issues/4233
+  * d/p/toolchain.patch: set go minimum version to 1.21
+  * d/rules: override dh_dwz to do nothing to avoid build error
+
+ -- Athos Ribeiro <athos.ribeiro@canonical.com>  Tue, 01 Apr 2025 17:42:06 -0300
+
 runc-app (1.2.5-0ubuntu1) plucky; urgency=medium
 
   [ Lucas Kanashiro ]
