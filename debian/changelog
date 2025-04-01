@@ -1,3 +1,12 @@
+runc-app (1.2.5-0ubuntu1~24.10.1) oracular; urgency=medium
+
+  * Backport from plucky to oracular (LP: #2085187)
+  * d/control: build with golang 1.22 for consistency across the supported
+    release
+  * d/rules: add golang 1.22 to PATH
+
+ -- Athos Ribeiro <athos.ribeiro@canonical.com>  Tue, 01 Apr 2025 17:33:57 -0300
+
 runc-app (1.2.5-0ubuntu1) plucky; urgency=medium
 
   [ Lucas Kanashiro ]
