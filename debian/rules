@@ -7,8 +7,8 @@ export DH_GOPKG := github.com/opencontainers/runc
 TAGS=apparmor seccomp selinux ambient
 VERSION=$(shell dpkg-parsechangelog -SVersion)
 
-# Build with Golang 1.24
-export PATH := /usr/lib/go-1.24/bin:$(PATH)
+# Build with Golang 1.22
+export PATH := /usr/lib/go-1.22/bin:$(PATH)
 
 # https://go.dev/blog/go116-module-changes
 export GO111MODULE := auto
