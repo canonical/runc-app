@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -u
+
 bats_require_minimum_version 1.5.0
 
 # Root directory of integration tests.
@@ -11,9 +13,16 @@ eval "$IMAGES"
 unset IMAGES
 
 : "${RUNC:="${INTEGRATION_ROOT}/../../runc"}"
-RECVTTY="${INTEGRATION_ROOT}/../../contrib/cmd/recvtty/recvtty"
-SD_HELPER="${INTEGRATION_ROOT}/../../contrib/cmd/sd-helper/sd-helper"
-SECCOMP_AGENT="${INTEGRATION_ROOT}/../../contrib/cmd/seccompagent/seccompagent"
+RECVTTY="${INTEGRATION_ROOT}/../../tests/cmd/recvtty/recvtty"
+SD_HELPER="${INTEGRATION_ROOT}/../../tests/cmd/sd-helper/sd-helper"
+SECCOMP_AGENT="${INTEGRATION_ROOT}/../../tests/cmd/seccompagent/seccompagent"
+FS_IDMAP="${INTEGRATION_ROOT}/../../tests/cmd/fs-idmap/fs-idmap"
+PIDFD_KILL="${INTEGRATION_ROOT}/../../tests/cmd/pidfd-kill/pidfd-kill"
+REMAP_ROOTFS="${INTEGRATION_ROOT}/../../tests/cmd/remap-rootfs/remap-rootfs"
+
+# Some variables may not always be set. Set those to empty value,
+# if unset, to avoid "unbound variable" error.
+: "${ROOTLESS_FEATURES:=}"
 
 # Test data path.
 # shellcheck disable=SC2034
@@ -30,9 +39,6 @@ ARCH=$(uname -m)
 # Seccomp agent socket.
 SECCCOMP_AGENT_SOCKET="$BATS_TMPDIR/seccomp-agent.sock"
 
-# Check if we're in rootless mode.
-ROOTLESS=$(id -u)
-
 # Wrapper for runc.
 function runc() {
 	run __runc "$@"
@@ -47,20 +53,19 @@ function runc() {
 
 # Raw wrapper for runc.
 function __runc() {
-	"$RUNC" ${RUNC_USE_SYSTEMD+--systemd-cgroup} --root "$ROOT/state" "$@"
+	"$RUNC" ${RUNC_USE_SYSTEMD+--systemd-cgroup} \
+		${ROOT:+--root "$ROOT/state"} "$@"
 }
 
 # Wrapper for runc spec.
 function runc_spec() {
-	local args=()
-	if [ "$ROOTLESS" -ne 0 ]; then
-		args+=("--rootless")
-	fi
+	local rootless=""
+	[ $EUID -ne 0 ] && rootless="--rootless"
 
-	runc spec "${args[@]}"
+	runc spec $rootless
 
 	# Always add additional mappings if we have idmaps.
-	if [[ "$ROOTLESS" -ne 0 ]] && [[ "$ROOTLESS_FEATURES" == *"idmap"* ]]; then
+	if [[ $EUID -ne 0 && "$ROOTLESS_FEATURES" == *"idmap"* ]]; then
 		runc_rootless_idmap
 	fi
 }
@@ -82,7 +87,7 @@ function runc_rootless_idmap() {
 
 # Returns systemd version as a number (-1 if systemd is not enabled/supported).
 function systemd_version() {
-	if [ -n "${RUNC_USE_SYSTEMD}" ]; then
+	if [ -v RUNC_USE_SYSTEMD ]; then
 		systemctl --version | awk '/^systemd / {print $2; exit}'
 		return
 	fi
@@ -92,16 +97,16 @@ function systemd_version() {
 
 function init_cgroup_paths() {
 	# init once
-	test -n "$CGROUP_UNIFIED" && return
+	[[ -v CGROUP_V1 || -v CGROUP_V2 ]] && return
 
 	if stat -f -c %t /sys/fs/cgroup | grep -qFw 63677270; then
-		CGROUP_UNIFIED=yes
+		CGROUP_V2=yes
 		local controllers="/sys/fs/cgroup/cgroup.controllers"
 		# For rootless + systemd case, controllers delegation is required,
 		# so check the controllers that the current user has, not the top one.
 		# NOTE: delegation of cpuset requires systemd >= 244 (Fedora >= 32, Ubuntu >= 20.04).
-		if [[ "$ROOTLESS" -ne 0 && -n "$RUNC_USE_SYSTEMD" ]]; then
-			controllers="/sys/fs/cgroup/user.slice/user-$(id -u).slice/user@$(id -u).service/cgroup.controllers"
+		if [[ $EUID -ne 0 && -v RUNC_USE_SYSTEMD ]]; then
+			controllers="/sys/fs/cgroup/user.slice/user-${UID}.slice/user@${UID}.service/cgroup.controllers"
 		fi
 
 		# "pseudo" controllers do not appear in /sys/fs/cgroup/cgroup.controllers.
@@ -116,17 +121,18 @@ function init_cgroup_paths() {
 		CGROUP_BASE_PATH=/sys/fs/cgroup
 
 		# Find any cgroup.freeze files...
-		if [ -n "$(find "$CGROUP_BASE_PATH" -type f -name "cgroup.freeze" -print -quit)" ]; then
+		if [ -n "$(find "$CGROUP_BASE_PATH" -maxdepth 2 -type f -name "cgroup.freeze" -print -quit)" ]; then
 			CGROUP_SUBSYSTEMS+=" freezer"
 		fi
 	else
-		if stat -f -c %t /sys/fs/cgroup/unified | grep -qFw 63677270; then
+		if stat -f -c %t /sys/fs/cgroup/unified 2>/dev/null | grep -qFw 63677270; then
 			CGROUP_HYBRID=yes
 		fi
-		CGROUP_UNIFIED=no
+		CGROUP_V1=yes
 		CGROUP_SUBSYSTEMS=$(awk '!/^#/ {print $1}' /proc/cgroups)
 		local g base_path
 		for g in ${CGROUP_SUBSYSTEMS}; do
+			# This uses gawk-specific feature (\< ... \>).
 			base_path=$(gawk '$(NF-2) == "cgroup" && $NF ~ /\<'"${g}"'\>/ { print $5; exit }' /proc/self/mountinfo)
 			test -z "$base_path" && continue
 			eval CGROUP_"${g^^}"_BASE_PATH="${base_path}"
@@ -135,12 +141,12 @@ function init_cgroup_paths() {
 }
 
 function create_parent() {
-	if [ -n "$RUNC_USE_SYSTEMD" ]; then
-		[ -z "$SD_PARENT_NAME" ] && return
+	if [ -v RUNC_USE_SYSTEMD ]; then
+		[ ! -v SD_PARENT_NAME ] && return
 		"$SD_HELPER" --parent machine.slice start "$SD_PARENT_NAME"
 	else
-		[ -z "$REL_PARENT_PATH" ] && return
-		if [ "$CGROUP_UNIFIED" == "yes" ]; then
+		[ ! -v REL_PARENT_PATH ] && return
+		if [ -v CGROUP_V2 ]; then
 			mkdir "/sys/fs/cgroup$REL_PARENT_PATH"
 		else
 			local subsys
@@ -155,12 +161,12 @@ function create_parent() {
 }
 
 function remove_parent() {
-	if [ -n "$RUNC_USE_SYSTEMD" ]; then
-		[ -z "$SD_PARENT_NAME" ] && return
+	if [ -v RUNC_USE_SYSTEMD ]; then
+		[ ! -v SD_PARENT_NAME ] && return
 		"$SD_HELPER" --parent machine.slice stop "$SD_PARENT_NAME"
 	else
-		[ -z "$REL_PARENT_PATH" ] && return
-		if [ "$CGROUP_UNIFIED" == "yes" ]; then
+		[ ! -v REL_PARENT_PATH ] && return
+		if [ -v CGROUP_V2 ]; then
 			rmdir "/sys/fs/cgroup/$REL_PARENT_PATH"
 		else
 			local subsys
@@ -174,21 +180,26 @@ function remove_parent() {
 }
 
 function set_parent_systemd_properties() {
-	[ -z "$SD_PARENT_NAME" ] && return
-	local user
-	[ "$(id -u)" != "0" ] && user="--user"
+	[ ! -v SD_PARENT_NAME ] && return
+	local user=""
+	[ $EUID -ne 0 ] && user="--user"
 	systemctl set-property $user "$SD_PARENT_NAME" "$@"
 }
 
 # Randomize cgroup path(s), and update cgroupsPath in config.json.
-# This function sets a few cgroup-related variables.
+# This function also sets a few cgroup-related variables that are used
+# by other cgroup-related functions.
+#
+# If this function is not called (and cgroupsPath is not set in config),
+# runc uses default container's cgroup path derived from the container's name
+# (except for rootless containers, that have no default cgroup path).
 #
 # Optional parameter $1 is a pod/parent name. If set, a parent/pod cgroup is
 # created, and variables $REL_PARENT_PATH and $SD_PARENT_NAME can be used to
 # refer to it.
 function set_cgroups_path() {
 	init_cgroup_paths
-	local pod dash_pod slash_pod pod_slice
+	local pod dash_pod="" slash_pod="" pod_slice=""
 	if [ "$#" -ne 0 ] && [ "$1" != "" ]; then
 		# Set up a parent/pod cgroup.
 		pod="$1"
@@ -199,14 +210,14 @@ function set_cgroups_path() {
 	fi
 
 	local rnd="$RANDOM"
-	if [ -n "${RUNC_USE_SYSTEMD}" ]; then
+	if [ -v RUNC_USE_SYSTEMD ]; then
 		SD_UNIT_NAME="runc-cgroups-integration-test-${rnd}.scope"
-		if [ "$(id -u)" = "0" ]; then
+		if [ $EUID -eq 0 ]; then
 			REL_PARENT_PATH="/machine.slice${pod_slice}"
 			OCI_CGROUPS_PATH="machine${dash_pod}.slice:runc-cgroups:integration-test-${rnd}"
 		else
-			REL_PARENT_PATH="/user.slice/user-$(id -u).slice/user@$(id -u).service/machine.slice${pod_slice}"
-			# OCI path doesn't contain "/user.slice/user-$(id -u).slice/user@$(id -u).service/" prefix
+			REL_PARENT_PATH="/user.slice/user-${UID}.slice/user@${UID}.service/machine.slice${pod_slice}"
+			# OCI path doesn't contain "/user.slice/user-${UID}.slice/user@${UID}.service/" prefix
 			OCI_CGROUPS_PATH="machine${dash_pod}.slice:runc-cgroups:integration-test-${rnd}"
 		fi
 		REL_CGROUPS_PATH="$REL_PARENT_PATH/$SD_UNIT_NAME"
@@ -217,11 +228,11 @@ function set_cgroups_path() {
 	fi
 
 	# Absolute path to container's cgroup v2.
-	if [ "$CGROUP_UNIFIED" == "yes" ]; then
-		CGROUP_PATH=${CGROUP_BASE_PATH}${REL_CGROUPS_PATH}
+	if [ -v CGROUP_V2 ]; then
+		CGROUP_V2_PATH=${CGROUP_BASE_PATH}${REL_CGROUPS_PATH}
 	fi
 
-	[ -n "$pod" ] && create_parent
+	[ -v pod ] && create_parent
 
 	update_config '.linux.cgroupsPath |= "'"${OCI_CGROUPS_PATH}"'"'
 }
@@ -230,8 +241,8 @@ function set_cgroups_path() {
 # Parameters:
 #  $1: controller name (like "pids") or a file name (like "pids.max").
 function get_cgroup_path() {
-	if [ "$CGROUP_UNIFIED" = "yes" ]; then
-		echo "$CGROUP_PATH"
+	if [ -v CGROUP_V2 ]; then
+		echo "$CGROUP_V2_PATH"
 		return
 	fi
 
@@ -249,29 +260,30 @@ function get_cgroup_value() {
 	cat "$cgroup/$1"
 }
 
-# Helper to check a if value in a cgroup file matches the expected one.
+# Check if a value in a cgroup file $1 matches $2 or $3 (if specified).
 function check_cgroup_value() {
-	local current
-	current="$(get_cgroup_value "$1")"
-	local expected=$2
+	local got
+	got="$(get_cgroup_value "$1")"
+	local want=$2
+	local want2="${3:-}"
 
-	echo "current $current !? $expected"
-	[ "$current" = "$expected" ]
+	echo "$1: got $got, want $want $want2"
+	[ "$got" = "$want" ] || [[ -n "$want2" && "$got" = "$want2" ]]
 }
 
-# Helper to check a value in systemd.
+# Check if a value of systemd unit property $1 matches $2 or $3 (if specified).
 function check_systemd_value() {
-	[ -z "${RUNC_USE_SYSTEMD}" ] && return
+	[ ! -v RUNC_USE_SYSTEMD ] && return
 	local source="$1"
 	[ "$source" = "unsupported" ] && return
-	local expected="$2"
-	local expected2="$3"
+	local want="$2"
+	local want2="${3:-}"
 	local user=""
-	[ "$(id -u)" != "0" ] && user="--user"
+	[ $EUID -ne 0 ] && user="--user"
 
-	current=$(systemctl show $user --property "$source" "$SD_UNIT_NAME" | awk -F= '{print $2}')
-	echo "systemd $source: current $current !? $expected $expected2"
-	[ "$current" = "$expected" ] || [[ -n "$expected2" && "$current" = "$expected2" ]]
+	got=$(systemctl show $user --property "$source" "$SD_UNIT_NAME" | awk -F= '{print $2}')
+	echo "systemd $source: got $got, want $want $want2"
+	[ "$got" = "$want" ] || [[ -n "$want2" && "$got" = "$want2" ]]
 }
 
 function check_cpu_quota() {
@@ -279,13 +291,13 @@ function check_cpu_quota() {
 	local period=$2
 	local sd_quota=$3
 
-	if [ "$CGROUP_UNIFIED" = "yes" ]; then
+	if [ -v CGROUP_V2 ]; then
 		if [ "$quota" = "-1" ]; then
 			quota="max"
 		fi
 		check_cgroup_value "cpu.max" "$quota $period"
 	else
-		check_cgroup_value "cpu.cfs_quota_us" $quota
+		check_cgroup_value "cpu.cfs_quota_us" "$quota"
 		check_cgroup_value "cpu.cfs_period_us" "$period"
 	fi
 	# systemd values are the same for v1 and v2
@@ -302,11 +314,23 @@ function check_cpu_quota() {
 	check_systemd_value "CPUQuotaPeriodUSec" $sd_period $sd_infinity
 }
 
+function check_cpu_burst() {
+	local burst=$1
+	if [ -v CGROUP_V2 ]; then
+		# Due to a kernel bug (fixed by commit 49217ea147df, see
+		# https://lore.kernel.org/all/20240424132438.514720-1-serein.chengyu@huawei.com/),
+		# older kernels printed value divided by 1000. Check for both.
+		check_cgroup_value "cpu.max.burst" "$burst" "$((burst / 1000))"
+	else
+		check_cgroup_value "cpu.cfs_burst_us" "$burst"
+	fi
+}
+
 # Works for cgroup v1 and v2, accepts v1 shares as an argument.
 function check_cpu_shares() {
 	local shares=$1
 
-	if [ "$CGROUP_UNIFIED" = "yes" ]; then
+	if [ -v CGROUP_V2 ]; then
 		local weight=$((1 + ((shares - 2) * 9999) / 262142))
 		check_cpu_weight "$weight"
 	else
@@ -341,7 +365,56 @@ function fail() {
 
 # Check whether rootless runc can use cgroups.
 function rootless_cgroup() {
-	[[ "$ROOTLESS_FEATURES" == *"cgroup"* || -n "$RUNC_USE_SYSTEMD" ]]
+	[[ "$ROOTLESS_FEATURES" == *"cgroup"* || -v RUNC_USE_SYSTEMD ]]
+}
+
+function in_userns() {
+	# The kernel guarantees the root userns inode number (and thus the value of
+	# the magic-link) is always the same value (PROC_USER_INIT_INO).
+	[[ "$(readlink /proc/self/ns/user)" != "user:[$((0xEFFFFFFD))]" ]]
+}
+
+function can_fsopen() {
+	fstype="$1"
+
+	# At the very least you need 5.1 for fsopen() and the filesystem needs to
+	# be supported by the running kernel.
+	if ! is_kernel_gte 5.1 || ! grep -qFw "$fstype" /proc/filesystems; then
+		return 1
+	fi
+
+	# You need to be root to use fsopen.
+	if [ "$EUID" -ne 0 ]; then
+		return 1
+	fi
+
+	# If we're root in the initial userns, we're done.
+	if ! in_userns; then
+		return 0
+	fi
+
+	# If we are running in a userns, then the filesystem needs to support
+	# FS_USERNS_MOUNT, which is a per-filesystem flag that depends on the
+	# kernel version.
+	case "$fstype" in
+	overlay)
+		# 459c7c565ac3 ("ovl: unprivieged mounts")
+		is_kernel_gte 5.11 || return 2
+		;;
+	fuse)
+		# 4ad769f3c346 ("fuse: Allow fully unprivileged mounts")
+		is_kernel_gte 4.18 || return 2
+		;;
+	ramfs | tmpfs)
+		# b3c6761d9b5c ("userns: Allow the userns root to mount ramfs.")
+		# 2b8576cb09a7 ("userns: Allow the userns root to mount tmpfs.")
+		is_kernel_gte 3.9 || return 2
+		;;
+	*)
+		# If we don't know about the filesystem, return an error.
+		fail "can_fsopen: unknown filesystem $fstype"
+		;;
+	esac
 }
 
 # Check if criu is available and working.
@@ -365,13 +438,19 @@ function requires() {
 				skip_me=1
 			fi
 			;;
+		criu_feature_*)
+			var=${var#criu_feature_}
+			if ! criu check --feature "$var"; then
+				skip "requires CRIU feature ${var}"
+			fi
+			;;
 		root)
-			if [ "$ROOTLESS" -ne 0 ]; then
+			if [ $EUID -ne 0 ] || in_userns; then
 				skip_me=1
 			fi
 			;;
 		rootless)
-			if [ "$ROOTLESS" -eq 0 ]; then
+			if [ $EUID -eq 0 ]; then
 				skip_me=1
 			fi
 			;;
@@ -391,7 +470,7 @@ function requires() {
 			fi
 			;;
 		rootless_no_features)
-			if [ "$ROOTLESS_FEATURES" != "" ]; then
+			if [ -n "$ROOTLESS_FEATURES" ]; then
 				skip_me=1
 			fi
 			;;
@@ -403,7 +482,54 @@ function requires() {
 			;;
 		cgroups_swap)
 			init_cgroup_paths
-			if [ $CGROUP_UNIFIED = "no" ] && [ ! -e "${CGROUP_MEMORY_BASE_PATH}/memory.memsw.limit_in_bytes" ]; then
+			if [ -v CGROUP_V1 ]; then
+				if [ ! -e "${CGROUP_MEMORY_BASE_PATH}/memory.memsw.limit_in_bytes" ]; then
+					skip_me=1
+				fi
+			elif [ -v CGROUP_V2 ]; then
+				if [ -z "$(find "$CGROUP_BASE_PATH" -maxdepth 2 -type f -name memory.swap.max -print -quit)" ]; then
+					skip_me=1
+				fi
+			fi
+			;;
+		cgroups_cpu_idle)
+			local p
+			init_cgroup_paths
+			[ -v CGROUP_V1 ] && p="$CGROUP_CPU_BASE_PATH"
+			[ -v CGROUP_V2 ] && p="$CGROUP_BASE_PATH"
+			if [ -z "$(find "$p" -maxdepth 2 -type f -name cpu.idle -print -quit)" ]; then
+				skip_me=1
+			fi
+			;;
+		cgroups_cpu_burst)
+			local p f
+			init_cgroup_paths
+			if [ -v CGROUP_V1 ]; then
+				p="$CGROUP_CPU_BASE_PATH"
+				f="cpu.cfs_burst_us"
+			elif [ -v CGROUP_V2 ]; then
+				# https://github.com/torvalds/linux/commit/f4183717b370ad28dd0c0d74760142b20e6e7931
+				requires_kernel 5.14
+				p="$CGROUP_BASE_PATH"
+				f="cpu.max.burst"
+			fi
+			if [ -z "$(find "$p" -maxdepth 2 -type f -name "$f" -print -quit)" ]; then
+				skip_me=1
+			fi
+			;;
+		cgroups_io_weight)
+			local p f1 f2
+			init_cgroup_paths
+			if [ -v CGROUP_V1 ]; then
+				p="$CGROUP_CPU_BASE_PATH"
+				f1="blkio.weight"
+				f2="blkio.bfq.weight"
+			elif [ -v CGROUP_V2 ]; then
+				p="$CGROUP_BASE_PATH"
+				f1="io.weight"
+				f2="io.bfq.weight"
+			fi
+			if [ -z "$(find "$p" -type f \( -name "$f1" -o -name "$f2" \) -print -quit)" ]; then
 				skip_me=1
 			fi
 			;;
@@ -412,21 +538,26 @@ function requires() {
 				skip_me=1
 			fi
 			;;
+		timens)
+			if [ ! -e "/proc/self/ns/time" ]; then
+				skip_me=1
+			fi
+			;;
 		cgroups_v1)
 			init_cgroup_paths
-			if [ "$CGROUP_UNIFIED" != "no" ]; then
+			if [ ! -v CGROUP_V1 ]; then
 				skip_me=1
 			fi
 			;;
 		cgroups_v2)
 			init_cgroup_paths
-			if [ "$CGROUP_UNIFIED" != "yes" ]; then
+			if [ ! -v CGROUP_V2 ]; then
 				skip_me=1
 			fi
 			;;
 		cgroups_hybrid)
 			init_cgroup_paths
-			if [ "$CGROUP_HYBRID" != "yes" ]; then
+			if [ ! -v CGROUP_HYBRID ]; then
 				skip_me=1
 			fi
 			;;
@@ -445,7 +576,7 @@ function requires() {
 			fi
 			;;
 		systemd)
-			if [ -z "${RUNC_USE_SYSTEMD}" ]; then
+			if [ ! -v RUNC_USE_SYSTEMD ]; then
 				skip_me=1
 			fi
 			;;
@@ -456,7 +587,7 @@ function requires() {
 			fi
 			;;
 		no_systemd)
-			if [ -n "${RUNC_USE_SYSTEMD}" ]; then
+			if [ -v RUNC_USE_SYSTEMD ]; then
 				skip_me=1
 			fi
 			;;
@@ -472,12 +603,33 @@ function requires() {
 				skip_me=1
 			fi
 			;;
+		psi)
+			# If PSI is not compiled in the kernel, the file will not exist.
+			# If PSI is compiled, but not enabled, read will fail with ENOTSUPP.
+			if ! cat /sys/fs/cgroup/cpu.pressure &>/dev/null; then
+				skip_me=1
+			fi
+			;;
 		*)
 			fail "BUG: Invalid requires $var."
 			;;
 		esac
-		if [ -n "$skip_me" ]; then
+		if [ -v skip_me ]; then
 			skip "test requires $var"
+		fi
+	done
+}
+
+# Allow a test to specify that it will not work properly on a given OS. The
+# fingerprint for the OS used for this test is $ID-$VERSION_ID, using the
+# variables in /etc/os-release. The arguments are regular expressions, and any
+# match will cause the test to be skipped.
+function exclude_os() {
+	local host
+	host="$(sh -c '. /etc/os-release ; echo "$ID-$VERSION_ID"')"
+	for bad_os in "$@"; do
+		if [[ "$host" =~ ^$bad_os$ ]]; then
+			skip "test doesn't work on $bad_os"
 		fi
 	done
 }
@@ -517,7 +669,7 @@ function wait_for_container() {
 function testcontainer() {
 	# test state of container
 	runc state "$1"
-	if [ "$2" == "checkpointed" ]; then
+	if [ "$2" = "checkpointed" ]; then
 		[ "$status" -eq 1 ]
 		return
 	fi
@@ -525,8 +677,38 @@ function testcontainer() {
 	[[ "${output}" == *"$2"* ]]
 }
 
+# Check that all the listed processes are gone. Use after kill/stop etc.
+function wait_pids_gone() {
+	if [ $# -lt 3 ]; then
+		echo "Usage: wait_pids_gone ITERATIONS SLEEP PID [PID ...]"
+		return 1
+	fi
+	local iter=$1
+	shift
+	local sleep=$1
+	shift
+	local pids=("$@")
+
+	while true; do
+		for i in "${!pids[@]}"; do
+			# Check if the pid is there; if not, remove it from the list.
+			kill -0 "${pids[i]}" 2>/dev/null || unset "pids[i]"
+		done
+		[ ${#pids[@]} -eq 0 ] && return 0
+		# Rebuild pids array to avoid sparse array issues.
+		pids=("${pids[@]}")
+
+		((--iter > 0)) || break
+
+		sleep "$sleep"
+	done
+
+	echo "Expected all PIDs to be gone, but some are still there:" "${pids[@]}" 1>&2
+	return 1
+}
+
 function setup_recvtty() {
-	[ -z "$ROOT" ] && return 1 # must not be called without ROOT set
+	[ ! -v ROOT ] && return 1 # must not be called without ROOT set
 	local dir="$ROOT/tty"
 
 	mkdir "$dir"
@@ -537,7 +719,7 @@ function setup_recvtty() {
 }
 
 function teardown_recvtty() {
-	[ -z "$ROOT" ] && return 0 # nothing to teardown
+	[ ! -v ROOT ] && return 0 # nothing to teardown
 	local dir="$ROOT/tty"
 
 	# When we kill recvtty, the container will also be killed.
@@ -591,9 +773,11 @@ function setup_debian() {
 }
 
 function teardown_bundle() {
-	[ -z "$ROOT" ] && return 0 # nothing to teardown
+	[ ! -v ROOT ] && return 0 # nothing to teardown
 
 	cd "$INTEGRATION_ROOT" || return
+	echo "--- teardown ---" >&2
+
 	teardown_recvtty
 	local ct
 	for ct in $(__runc list -q); do
@@ -603,11 +787,91 @@ function teardown_bundle() {
 	remove_parent
 }
 
-function requires_kernel() {
+function remap_rootfs() {
+	[ ! -v ROOT ] && return 0 # nothing to remap
+
+	"$REMAP_ROOTFS" "$ROOT/bundle"
+}
+
+function is_kernel_gte() {
 	local major_required minor_required
 	major_required=$(echo "$1" | cut -d. -f1)
 	minor_required=$(echo "$1" | cut -d. -f2)
-	if [[ "$KERNEL_MAJOR" -lt $major_required || ("$KERNEL_MAJOR" -eq $major_required && "$KERNEL_MINOR" -lt $minor_required) ]]; then
-		skip "requires kernel $1"
+	[[ "$KERNEL_MAJOR" -gt $major_required || ("$KERNEL_MAJOR" -eq $major_required && "$KERNEL_MINOR" -ge $minor_required) ]]
+}
+
+function requires_kernel() {
+	if ! is_kernel_gte "$@"; then
+		skip "requires kernel >= $1"
+	fi
+}
+
+function requires_idmap_fs() {
+	local fs
+	fs=$1
+
+	# We need to "|| true" it to avoid CI failure as this binary may return with
+	# something different than 0.
+	stderr=$($FS_IDMAP "$fs" 2>&1 >/dev/null || true)
+
+	case $stderr in
+	*invalid\ argument)
+		skip "$fs underlying file system does not support ID map mounts"
+		;;
+	*operation\ not\ permitted)
+		if uname -r | grep -q el9; then
+			# Older EL9 kernels did not permit using ID map mounts
+			# due to a specific patch added to their sources:
+			# 	https://gitlab.com/redhat/centos-stream/src/kernel/centos-stream-9/-/merge_requests/131
+			#
+			# That patch was reverted in:
+			# 	https://gitlab.com/redhat/centos-stream/src/kernel/centos-stream-9/-/merge_requests/2179
+			#
+			# The above revert is included into the kernel 5.14.0-334.el9.
+			skip "Needs kernel >= 5.14.0-334.el9"
+		fi
+		;;
+	esac
+	# If we have another error, the integration test will fail and report it.
+}
+
+# setup_pidfd_kill runs pidfd-kill process in background and receives the
+# SIGTERM as signal to send the given signal to init process.
+function setup_pidfd_kill() {
+	local signal=$1
+
+	[ ! -v ROOT ] && return 1
+	local dir="${ROOT}/pidfd"
+
+	mkdir "${dir}"
+	export PIDFD_SOCKET="${dir}/sock"
+
+	("${PIDFD_KILL}" --pid-file "${dir}/pid" --signal "${signal}" "${PIDFD_SOCKET}" &) &
+
+	# ensure socket is ready
+	retry 10 1 stat "${PIDFD_SOCKET}"
+}
+
+# teardown_pidfd_kill cleanups all the resources related to pidfd-kill.
+function teardown_pidfd_kill() {
+	[ ! -v ROOT ] && return 0
+
+	local dir="${ROOT}/pidfd"
+
+	if [ -f "${dir}/pid" ]; then
+		kill -9 "$(cat "${dir}/pid")"
+	fi
+
+	rm -rf "${dir}"
+}
+
+# pidfd_kill sends the signal to init process.
+function pidfd_kill() {
+	[ ! -v ROOT ] && return 0
+
+	local dir="${ROOT}/pidfd"
+
+	if [ -f "${dir}/pid" ]; then
+		kill "$(cat "${dir}/pid")"
 	fi
 }

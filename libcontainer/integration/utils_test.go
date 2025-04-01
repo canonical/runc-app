@@ -165,15 +165,11 @@ func copyBusybox(dest string) error {
 	return nil
 }
 
-func newContainer(t *testing.T, config *configs.Config) (libcontainer.Container, error) {
+func newContainer(t *testing.T, config *configs.Config) (*libcontainer.Container, error) {
 	name := strings.ReplaceAll(t.Name(), "/", "_") + strconv.FormatInt(-int64(time.Now().Nanosecond()), 35)
 	root := t.TempDir()
 
-	f, err := libcontainer.New(root)
-	if err != nil {
-		return nil, err
-	}
-	return f.Create(name, config)
+	return libcontainer.Create(root, name, config)
 }
 
 // runContainer runs the container with the specific config and arguments
@@ -232,6 +228,6 @@ func runContainerOk(t *testing.T, config *configs.Config, args ...string) *stdBu
 	return buffers
 }
 
-func destroyContainer(container libcontainer.Container) {
+func destroyContainer(container *libcontainer.Container) {
 	_ = container.Destroy()
 }

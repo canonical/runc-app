@@ -18,7 +18,8 @@ import (
 	"github.com/opencontainers/runc/libcontainer/cgroups"
 	"github.com/opencontainers/runc/libcontainer/cgroups/systemd"
 	"github.com/opencontainers/runc/libcontainer/configs"
-	"github.com/opencontainers/runc/libcontainer/userns"
+	"github.com/opencontainers/runc/libcontainer/internal/userns"
+	"github.com/opencontainers/runc/libcontainer/utils"
 	"github.com/opencontainers/runtime-spec/specs-go"
 
 	"golang.org/x/sys/unix"
@@ -135,11 +136,13 @@ func testRlimit(t *testing.T, userns bool) {
 
 	config := newTemplateConfig(t, &tParam{userns: userns})
 
-	// ensure limit is lower than what the config requests to test that in a user namespace
+	// Ensure limit is lower than what the config requests to test that in a user namespace
 	// the Setrlimit call happens early enough that we still have permissions to raise the limit.
+	// Do not change the Cur value to be equal to the Max value, please see:
+	// https://github.com/opencontainers/runc/pull/4265#discussion_r1589666444
 	ok(t, unix.Setrlimit(unix.RLIMIT_NOFILE, &unix.Rlimit{
 		Max: 1024,
-		Cur: 1024,
+		Cur: 512,
 	}))
 
 	out := runContainerOk(t, config, "/bin/sh", "-c", "ulimit -n")
@@ -721,7 +724,7 @@ func TestContainerState(t *testing.T) {
 		{Type: configs.NEWNS},
 		{Type: configs.NEWUTS},
 		// host for IPC
-		//{Type: configs.NEWIPC},
+		// {Type: configs.NEWIPC},
 		{Type: configs.NEWPID},
 		{Type: configs.NEWNET},
 	})
@@ -804,55 +807,6 @@ func TestPassExtraFiles(t *testing.T) {
 	out2 := string(buf)
 	if out2 != "2" {
 		t.Fatalf("expected second pipe to receive '2', got '%s'", out2)
-	}
-}
-
-func TestMountCmds(t *testing.T) {
-	if testing.Short() {
-		return
-	}
-
-	tmpDir := t.TempDir()
-	config := newTemplateConfig(t, nil)
-	rootfs := config.Rootfs
-	config.Mounts = append(config.Mounts, &configs.Mount{
-		Source:      tmpDir,
-		Destination: "/tmp",
-		Device:      "bind",
-		Flags:       unix.MS_BIND | unix.MS_REC,
-		PremountCmds: []configs.Command{
-			{Path: "touch", Args: []string{filepath.Join(tmpDir, "hello")}},
-			{Path: "touch", Args: []string{filepath.Join(tmpDir, "world")}},
-		},
-		PostmountCmds: []configs.Command{
-			{Path: "cp", Args: []string{filepath.Join(rootfs, "tmp", "hello"), filepath.Join(rootfs, "tmp", "hello-backup")}},
-			{Path: "cp", Args: []string{filepath.Join(rootfs, "tmp", "world"), filepath.Join(rootfs, "tmp", "world-backup")}},
-		},
-	})
-
-	container, err := newContainer(t, config)
-	ok(t, err)
-	defer destroyContainer(container)
-
-	pconfig := libcontainer.Process{
-		Cwd:  "/",
-		Args: []string{"sh", "-c", "env"},
-		Env:  standardEnvironment,
-		Init: true,
-	}
-	err = container.Run(&pconfig)
-	ok(t, err)
-
-	// Wait for process
-	waitProcess(&pconfig, t)
-
-	entries, err := os.ReadDir(tmpDir)
-	ok(t, err)
-	expected := []string{"hello", "hello-backup", "world", "world-backup"}
-	for i, e := range entries {
-		if e.Name() != expected[i] {
-			t.Errorf("Got(%s), expect %s", e.Name(), expected[i])
-		}
 	}
 }
 
@@ -1405,16 +1359,26 @@ func TestPIDHost(t *testing.T) {
 	}
 }
 
-func TestPIDHostInitProcessWait(t *testing.T) {
+func TestHostPidnsInitKill(t *testing.T) {
+	config := newTemplateConfig(t, nil)
+	// Implicitly use host pid ns.
+	config.Namespaces.Remove(configs.NEWPID)
+	testPidnsInitKill(t, config)
+}
+
+func TestSharedPidnsInitKill(t *testing.T) {
+	config := newTemplateConfig(t, nil)
+	// Explicitly use host pid ns.
+	config.Namespaces.Add(configs.NEWPID, "/proc/1/ns/pid")
+	testPidnsInitKill(t, config)
+}
+
+func testPidnsInitKill(t *testing.T, config *configs.Config) {
 	if testing.Short() {
 		return
 	}
 
-	pidns := "/proc/1/ns/pid"
-
 	// Run a container with two long-running processes.
-	config := newTemplateConfig(t, nil)
-	config.Namespaces.Add(configs.NEWPID, pidns)
 	container, err := newContainer(t, config)
 	ok(t, err)
 	defer func() {
@@ -1423,7 +1387,7 @@ func TestPIDHostInitProcessWait(t *testing.T) {
 
 	process1 := &libcontainer.Process{
 		Cwd:  "/",
-		Args: []string{"sleep", "100"},
+		Args: []string{"sleep", "1h"},
 		Env:  standardEnvironment,
 		Init: true,
 	}
@@ -1432,25 +1396,26 @@ func TestPIDHostInitProcessWait(t *testing.T) {
 
 	process2 := &libcontainer.Process{
 		Cwd:  "/",
-		Args: []string{"sleep", "100"},
+		Args: []string{"sleep", "1h"},
 		Env:  standardEnvironment,
 		Init: false,
 	}
 	err = container.Run(process2)
 	ok(t, err)
 
-	// Kill the init process and Wait for it.
-	err = process1.Signal(syscall.SIGKILL)
+	// Kill the container.
+	err = container.Signal(syscall.SIGKILL)
 	ok(t, err)
 	_, err = process1.Wait()
 	if err == nil {
 		t.Fatal("expected Wait to indicate failure")
 	}
 
-	// The non-init process must've been killed.
-	err = process2.Signal(syscall.Signal(0))
-	if err == nil || err.Error() != "no such process" {
-		t.Fatalf("expected process to have been killed: %v", err)
+	// The non-init process must've also been killed. If not,
+	// the test will time out.
+	_, err = process2.Wait()
+	if err == nil {
+		t.Fatal("expected Wait to indicate failure")
 	}
 }
 
@@ -1592,8 +1557,8 @@ func TestInitJoinNetworkAndUser(t *testing.T) {
 	// Emulate specconv.setupUserNamespace().
 	uidMap, gidMap, err := userns.GetUserNamespaceMappings(userns1)
 	ok(t, err)
-	config2.UidMappings = uidMap
-	config2.GidMappings = gidMap
+	config2.UIDMappings = uidMap
+	config2.GIDMappings = gidMap
 	config2.Cgroups.Path = "integration/test2"
 	container2, err := newContainer(t, config2)
 	ok(t, err)
@@ -1729,6 +1694,20 @@ func TestFdLeaksSystemd(t *testing.T) {
 	testFdLeaks(t, true)
 }
 
+func fdList(t *testing.T) []string {
+	procSelfFd, closer := utils.ProcThreadSelf("fd")
+	defer closer()
+
+	fdDir, err := os.Open(procSelfFd)
+	ok(t, err)
+	defer fdDir.Close()
+
+	fds, err := fdDir.Readdirnames(-1)
+	ok(t, err)
+
+	return fds
+}
+
 func testFdLeaks(t *testing.T, systemd bool) {
 	if testing.Short() {
 		return
@@ -1743,21 +1722,12 @@ func testFdLeaks(t *testing.T, systemd bool) {
 	//  - /sys/fs/cgroup dirfd opened by prepareOpenat2 in libct/cgroups;
 	//  - dbus connection opened by getConnection in libct/cgroups/systemd.
 	_ = runContainerOk(t, config, "true")
-
-	pfd, err := os.Open("/proc/self/fd")
-	ok(t, err)
-	defer pfd.Close()
-	fds0, err := pfd.Readdirnames(0)
-	ok(t, err)
-	_, err = pfd.Seek(0, 0)
-	ok(t, err)
+	fds0 := fdList(t)
 
 	_ = runContainerOk(t, config, "true")
+	fds1 := fdList(t)
 
-	fds1, err := pfd.Readdirnames(0)
-	ok(t, err)
-
-	if len(fds1) == len(fds0) {
+	if reflect.DeepEqual(fds0, fds1) {
 		return
 	}
 	// Show the extra opened files.
@@ -1767,6 +1737,10 @@ func testFdLeaks(t *testing.T, systemd bool) {
 	}
 
 	count := 0
+
+	procSelfFd, closer := utils.ProcThreadSelf("fd/")
+	defer closer()
+
 next_fd:
 	for _, fd1 := range fds1 {
 		for _, fd0 := range fds0 {
@@ -1774,7 +1748,7 @@ next_fd:
 				continue next_fd
 			}
 		}
-		dst, _ := os.Readlink("/proc/self/fd/" + fd1)
+		dst, _ := os.Readlink(filepath.Join(procSelfFd, fd1))
 		for _, ex := range excludedPaths {
 			if ex == dst {
 				continue next_fd
@@ -1818,8 +1792,8 @@ func TestBindMountAndUser(t *testing.T) {
 	})
 
 	// Set HostID to 1000 to avoid DAC_OVERRIDE bypassing the purpose of this test.
-	config.UidMappings[0].HostID = 1000
-	config.GidMappings[0].HostID = 1000
+	config.UIDMappings[0].HostID = 1000
+	config.GIDMappings[0].HostID = 1000
 
 	// Set the owner of rootfs to the effective IDs in the host to avoid errors
 	// while creating the folders to perform the mounts.

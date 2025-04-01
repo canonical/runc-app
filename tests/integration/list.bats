@@ -9,9 +9,8 @@ function setup() {
 }
 
 function teardown() {
-	if [ -n "$ALT_ROOT" ]; then
-		ROOT="$ALT_ROOT" teardown_bundle
-	fi
+	ROOT="$ALT_ROOT" teardown_bundle
+	unset ALT_ROOT
 	teardown_bundle
 }
 
@@ -36,9 +35,9 @@ function teardown() {
 
 	ROOT=$ALT_ROOT runc list -q
 	[ "$status" -eq 0 ]
-	[[ "${lines[0]}" == "test_box1" ]]
-	[[ "${lines[1]}" == "test_box2" ]]
-	[[ "${lines[2]}" == "test_box3" ]]
+	[ "${lines[0]}" = "test_box1" ]
+	[ "${lines[1]}" = "test_box2" ]
+	[ "${lines[2]}" = "test_box3" ]
 
 	ROOT=$ALT_ROOT runc list --format table
 	[ "$status" -eq 0 ]

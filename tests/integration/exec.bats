@@ -117,7 +117,7 @@ function teardown() {
 
 @test "runc exec --user" {
 	# --user can't work in rootless containers that don't have idmap.
-	[[ "$ROOTLESS" -ne 0 ]] && requires rootless_idmap
+	[ $EUID -ne 0 ] && requires rootless_idmap
 
 	# run busybox detached
 	runc run -d --console-socket "$CONSOLE_SOCKET" test_busybox
@@ -155,8 +155,7 @@ function teardown() {
 
 	runc exec --user 1000:1000 --additional-gids 100 --additional-gids 65534 test_busybox id -G
 	[ "$status" -eq 0 ]
-
-	[[ ${output} == "1000 100 65534" ]]
+	[ "$output" = "1000 100 65534" ]
 }
 
 @test "runc exec --preserve-fds" {
@@ -169,7 +168,7 @@ function teardown() {
 	exec 4<preserve-fds.test
 	runc exec --preserve-fds=2 test_busybox cat /proc/self/fd/4
 	[ "$status" -eq 0 ]
-	[[ "${output}" == "hello" ]]
+	[ "${output}" = "hello" ]
 }
 
 function check_exec_debug() {
@@ -322,4 +321,22 @@ function check_exec_debug() {
 	[ "$status" -eq 0 ]
 	runc exec --cgroup second test_busybox grep -w second /proc/self/cgroup
 	[ "$status" -eq 0 ]
+}
+
+@test "runc exec [execve error]" {
+	cat <<EOF >rootfs/run.sh
+#!/mmnnttbb foo bar
+sh
+EOF
+	chmod +x rootfs/run.sh
+	runc run -d --console-socket "$CONSOLE_SOCKET" test_busybox
+	runc exec -t test_busybox /run.sh
+	[ "$status" -ne 0 ]
+
+	# After the sync socket closed, we should not send error to parent
+	# process, or else we will get a unnecessary error log(#4171).
+	# Although we never close the sync socket when doing exec,
+	# but we need to keep this test to ensure this behavior is always right.
+	[ ${#lines[@]} -eq 1 ]
+	[[ ${lines[0]} = *"exec /run.sh: no such file or directory"* ]]
 }

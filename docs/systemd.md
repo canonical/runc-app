@@ -91,6 +91,7 @@ The following tables summarize which properties are translated.
 | cpu.mems                | AllowedMemoryNodes    | v244                |
 | unified.cpu.max         | CPUQuota, CPUQuotaPeriodSec | v242          |
 | unified.cpu.weight      | CPUWeight             |                     |
+| unified.cpu.idle        | CPUWeight             | v252                |
 | unified.cpuset.cpus     | AllowedCPUs           | v244                |
 | unified.cpuset.mems     | AllowedMemoryNodes    | v244                |
 | unified.memory.high     | MemoryHigh            |                     |
@@ -124,7 +125,7 @@ The above will set the following properties:
 * `CollectMode` to "inactive-or-failed".
 
 The values must be in the gvariant text format, as described in
-[gvariant documentation](https://docs.gtk.org/glib/gvariant-text.html).
+[gvariant documentation](https://docs.gtk.org/glib/gvariant-text-format.html).
 
 To find out which type systemd expects for a particular parameter, please
 consult systemd sources.

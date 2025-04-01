@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-set -e
+set -e -u
+
+[ -t 1 ] || NO_COLOR=1
 
 # bits of this were adapted from check_config.sh in docker
 # see also https://github.com/docker/docker/blob/master/contrib/check-config.sh
@@ -27,9 +29,19 @@ kernelMajor="${kernelVersion%%.*}"
 kernelMinor="${kernelVersion#"$kernelMajor".}"
 kernelMinor="${kernelMinor%%.*}"
 
+# Usage: to check if kernel version is < 4.8, use
+# 	kernel_lt 4 8
+# (here "lt" stands for "less than").
 kernel_lt() {
 	[ "$kernelMajor" -lt "$1" ] && return
-	[ "$kernelMajor" -eq "$1" ] && [ "$kernelMinor" -le "$2" ]
+	[ "$kernelMajor" -eq "$1" ] && [ "$kernelMinor" -lt "$2" ]
+}
+
+# Usage: to check if kernel version is >= 6.1, use
+#	kernel_ge 6 1
+# (here "ge" stands for "greater or equal").
+kernel_ge() {
+	! kernel_lt "$1" "$2"
 }
 
 is_set() {
@@ -43,13 +55,15 @@ is_set_as_module() {
 }
 
 color() {
+	[ -n "${NO_COLOR:-}" ] && return
+
 	local codes=()
 	if [ "$1" = 'bold' ]; then
-		codes=("${codes[@]}" '1')
+		codes=("${codes[@]-}" '1')
 		shift
 	fi
 	if [ "$#" -gt 0 ]; then
-		local code
+		local code=''
 		case "$1" in
 		# see https://en.wikipedia.org/wiki/ANSI_escape_code#Colors
 		black) code=30 ;;
@@ -62,11 +76,11 @@ color() {
 		white) code=37 ;;
 		esac
 		if [ "$code" ]; then
-			codes=("${codes[@]}" "$code")
+			codes=("${codes[@]-}" "$code")
 		fi
 	fi
 	local IFS=';'
-	echo -en '\033['"${codes[*]}"'m'
+	echo -en '\033['"${codes[*]-}"'m'
 }
 wrap_color() {
 	text="$1"
@@ -134,8 +148,7 @@ is_config() {
 }
 
 search_config() {
-	local target_dir="$1"
-	[[ "$target_dir" ]] || target_dir=("${possibleConfigs[@]}")
+	local target_dir=("${1:-${possibleConfigs[@]}}")
 
 	local tryConfig
 	for tryConfig in "${target_dir[@]}"; do
@@ -159,7 +172,7 @@ search_config() {
 	exit 1
 }
 
-CONFIG="$1"
+CONFIG="${1:-}"
 
 is_config "$CONFIG" || {
 	if [[ ! "$CONFIG" ]]; then
@@ -179,14 +192,17 @@ echo
 
 echo 'Generally Necessary:'
 
+cgroup=""
 echo -n '- '
 if [ "$(stat -f -c %t /sys/fs/cgroup 2>/dev/null)" = "63677270" ]; then
 	wrap_good 'cgroup hierarchy' 'cgroupv2'
+	cgroup="v2"
 else
 	cgroupSubsystemDir="$(awk '/[, ](cpu|cpuacct|cpuset|devices|freezer|memory)[, ]/ && $3 == "cgroup" { print $2 }' /proc/mounts | head -n1)"
 	cgroupDir="$(dirname "$cgroupSubsystemDir")"
 	if [ -d "$cgroupDir/cpu" ] || [ -d "$cgroupDir/cpuacct" ] || [ -d "$cgroupDir/cpuset" ] || [ -d "$cgroupDir/devices" ] || [ -d "$cgroupDir/freezer" ] || [ -d "$cgroupDir/memory" ]; then
 		wrap_good 'cgroup hierarchy' 'properly mounted' "[$cgroupDir]"
+		cgroup="v1"
 	else
 		if [ "$cgroupSubsystemDir" ]; then
 			wrap_bad 'cgroup hierarchy' 'single mountpoint!' "[$cgroupSubsystemDir]"
@@ -220,18 +236,28 @@ flags=(
 	KEYS
 	VETH BRIDGE BRIDGE_NETFILTER
 	IP_NF_FILTER IP_NF_TARGET_MASQUERADE
-	NETFILTER_XT_MATCH_{ADDRTYPE,CONNTRACK,IPVS}
+	NETFILTER_XT_MATCH_{ADDRTYPE,COMMENT,CONNTRACK,IPVS}
 	IP_NF_NAT NF_NAT
 
 	# required for bind-mounting /dev/mqueue into containers
 	POSIX_MQUEUE
+
+	# Most containers use overlayfs, and now runc itself uses it.
+	OVERLAY_FS
 )
 check_flags "${flags[@]}"
 
+# Linux kernel commit 3007098494be.
+if kernel_ge 4 10 && [ $cgroup = "v2" ]; then
+	check_flags CGROUP_BPF
+fi
+
+# Linux kernel commit 3bf195ae6037.
 if kernel_lt 5 1; then
 	check_flags NF_NAT_IPV4
 fi
 
+# Linux kernel commit 4806e975729f99c7.
 if kernel_lt 5 2; then
 	check_flags NF_NAT_NEEDED
 fi
@@ -247,8 +273,11 @@ echo 'Optional Features:'
 	check_flags SECCOMP_FILTER
 	check_flags CGROUP_PIDS
 
-	check_flags MEMCG_SWAP
-
+	# Linux kernel commit e55b9f96860f.
+	if kernel_lt 6 1; then
+		check_flags MEMCG_SWAP
+	fi
+	# Linux kernel commit 2d1c498072de.
 	if kernel_lt 5 8; then
 		check_flags MEMCG_SWAP_ENABLED
 		if is_set MEMCG_SWAP && ! is_set MEMCG_SWAP_ENABLED; then
@@ -257,22 +286,31 @@ echo 'Optional Features:'
 	fi
 }
 
+# Linux kernel commit d886f4e483ce.
 if kernel_lt 4 5; then
 	check_flags MEMCG_KMEM
 fi
 
-if kernel_lt 3 18; then
+# Linux kernel commit 5b1efc027c0b.
+if kernel_lt 3 19; then
 	check_flags RESOURCE_COUNTERS
 fi
 
-if kernel_lt 3 13; then
+# Linux kernel commit 86f8515f9721.
+if kernel_lt 3 14; then
 	netprio=NETPRIO_CGROUP
 else
 	netprio=CGROUP_NET_PRIO
 fi
 
+# Linux kernel commit f382fb0bcef4.
 if kernel_lt 5 0; then
 	check_flags IOSCHED_CFQ CFQ_GROUP_IOSCHED
+fi
+
+# Linux kernel commit 7caa47151ab2.
+if kernel_ge 5 4; then
+	check_flags BLK_CGROUP_IOCOST
 fi
 
 flags=(
@@ -289,5 +327,6 @@ flags=(
 	IP_VS_RR
 	SECURITY_SELINUX
 	SECURITY_APPARMOR
+	CHECKPOINT_RESTORE
 )
 check_flags "${flags[@]}"

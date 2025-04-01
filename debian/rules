@@ -7,10 +7,11 @@ export DH_GOPKG := github.com/opencontainers/runc
 TAGS=apparmor seccomp selinux ambient
 VERSION=$(shell dpkg-parsechangelog -SVersion)
 
-# Build with Golang 1.21
-export PATH := /usr/lib/go-1.21/bin:$(PATH)
+# Build with Golang 1.24
+export PATH := /usr/lib/go-1.24/bin:$(PATH)
 
-export GO111MODULE := off
+# https://go.dev/blog/go116-module-changes
+export GO111MODULE := auto
 export GOCACHE := $(CURDIR)/.cache
 
 %:
@@ -35,6 +36,5 @@ override_dh_auto_install:
 	dh_auto_install
 	# Do not ship the library code
 	$(RM) -vrf debian/runc/usr/share/gocode
-
-override_dh_dwz:
-	# do not call dh_dwz to avoid "dwz: Too few files for multifile optimization"
+	# Do not ship example/test utilities (LP: #2076981)
+	$(foreach bin, recvtty sd-helper seccompagent, $(RM) -v debian/runc/usr/bin/$(bin))

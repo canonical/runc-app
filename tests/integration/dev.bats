@@ -17,7 +17,7 @@ function teardown() {
 	runc run test_dev
 	[ "$status" -eq 0 ]
 
-	if [[ "$ROOTLESS" -ne 0 ]]; then
+	if [ $EUID -ne 0 ]; then
 		[[ "${lines[0]}" =~ "crw-rw-rw".+"1".+"65534".+"65534".+"5,".+"0".+"/dev/tty" ]]
 	else
 		[[ "${lines[0]}" =~ "crw-rw-rw".+"1".+"0".+"0".+"5,".+"0".+"/dev/tty" ]]
@@ -40,7 +40,6 @@ function teardown() {
 			| .linux.devices = [{"path": "/dev/kmsg", "type": "c", "major": 1, "minor": 11}]
 			| .process.capabilities.bounding += ["CAP_SYSLOG"]
 			| .process.capabilities.effective += ["CAP_SYSLOG"]
-			| .process.capabilities.inheritable += ["CAP_SYSLOG"]
 			| .process.capabilities.permitted += ["CAP_SYSLOG"]
 			| .process.args |= ["sh"]'
 
@@ -78,7 +77,6 @@ function teardown() {
 			| .process.args |= ["sh"]
 			| .process.capabilities.bounding += ["CAP_SYSLOG"]
 			| .process.capabilities.effective += ["CAP_SYSLOG"]
-			| .process.capabilities.inheritable += ["CAP_SYSLOG"]
 			| .process.capabilities.permitted += ["CAP_SYSLOG"]
 			| .hostname = "myhostname"'
 
@@ -114,7 +112,6 @@ function teardown() {
 			| .process.args |= ["sh"]
 			| .process.capabilities.bounding += ["CAP_MKNOD"]
 			| .process.capabilities.effective += ["CAP_MKNOD"]
-			| .process.capabilities.inheritable += ["CAP_MKNOD"]
 			| .process.capabilities.permitted += ["CAP_MKNOD"]'
 
 	runc run -d --console-socket "$CONSOLE_SOCKET" test_allow_block
@@ -143,4 +140,16 @@ function teardown() {
 
 	runc exec -t test_exec sh -c "ls -l /proc/self/fd/0; echo 123"
 	[ "$status" -eq 0 ]
+}
+
+# https://github.com/opencontainers/runc/issues/4568
+@test "runc run [devices vs systemd NeedDaemonReload]" {
+	# The systemd bug is there since v230, see
+	# https://github.com/systemd/systemd/pull/3170/commits/ab932a622d57fd327ef95992c343fd4425324088
+	# and https://github.com/systemd/systemd/issues/35710.
+	requires systemd_v230
+
+	set_cgroups_path
+	runc run -d --console-socket "$CONSOLE_SOCKET" test_need_reload
+	check_systemd_value "NeedDaemonReload" "no"
 }

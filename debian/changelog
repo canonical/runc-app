@@ -1,11 +1,22 @@
-runc-app (1.1.12-0ubuntu4~20.04.1) focal; urgency=medium
+runc-app (1.2.5-0ubuntu1) plucky; urgency=medium
 
-  * Backport from oracular to focal. (LP: #2040461)
-    - d/rules: override dh_dwz to do nothing to avoid build error.
-    - d/{rules,control}: use golang 1.21 due to imcompatibilities with libc
-      2.31. https://github.com/opencontainers/runc/issues/4233
+  [ Lucas Kanashiro ]
+  * Do not install example/test utilities (LP: #2076981)
 
- -- Athos Ribeiro <athos.ribeiro@canonical.com>  Mon, 14 Oct 2024 17:47:08 -0300
+  [ Athos Ribeiro ]
+  * d/gbp.conf: use default value for merging
+  * d/control: build with golang 1.24 (LP: #2098665)
+  * d/rules: add golang 1.24 to PATH
+  * New upstream version 1.2.5
+  * d/p/0002-skip-privileged-test-factory_linux_test.go.patch: refresh patch
+  * d/p/0004-skip-test-cgroups_test.go.patch: refresh patch
+  * d/p/0008-tests-enable-seccomp-default-action-tests-on-arm.patch: drop
+    patch applied upstream
+  * d/p/0010-export-blockIODevice.patch: drop patch applied upstream
+  * d/copyright: update copyright data
+  * d/rules: set GO111MODULE to auto
+
+ -- Athos Ribeiro <athos.ribeiro@canonical.com>  Tue, 18 Feb 2025 10:30:11 -0300
 
 runc-app (1.1.12-0ubuntu4) oracular-proposed; urgency=medium
 

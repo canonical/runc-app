@@ -37,20 +37,20 @@ function setup() {
 }
 
 @test "runc create (limits + cgrouppath + permission on the cgroup dir) succeeds" {
-	[[ "$ROOTLESS" -ne 0 ]] && requires rootless_cgroup
+	[ $EUID -ne 0 ] && requires rootless_cgroup
 
 	set_cgroups_path
 	set_resources_limit
 
 	runc run -d --console-socket "$CONSOLE_SOCKET" test_cgroups_permissions
 	[ "$status" -eq 0 ]
-	if [ "$CGROUP_UNIFIED" != "no" ]; then
-		if [ -n "${RUNC_USE_SYSTEMD}" ]; then
-			if [ "$(id -u)" = "0" ]; then
+	if [ -v CGROUP_V2 ]; then
+		if [ -v RUNC_USE_SYSTEMD ]; then
+			if [ $EUID -eq 0 ]; then
 				check_cgroup_value "cgroup.controllers" "$(cat /sys/fs/cgroup/machine.slice/cgroup.controllers)"
 			else
 				# Filter out controllers that systemd is unable to delegate.
-				check_cgroup_value "cgroup.controllers" "$(sed 's/ \(hugetlb\|misc\|rdma\)//g' </sys/fs/cgroup/user.slice/user-"$(id -u)".slice/cgroup.controllers)"
+				check_cgroup_value "cgroup.controllers" "$(sed 's/ \(hugetlb\|misc\|rdma\)//g' </sys/fs/cgroup/user.slice/user-${EUID}.slice/cgroup.controllers)"
 			fi
 		else
 			check_cgroup_value "cgroup.controllers" "$(cat /sys/fs/cgroup/cgroup.controllers)"
@@ -59,7 +59,7 @@ function setup() {
 }
 
 @test "runc exec (limits + cgrouppath + permission on the cgroup dir) succeeds" {
-	[[ "$ROOTLESS" -ne 0 ]] && requires rootless_cgroup
+	[ $EUID -ne 0 ] && requires rootless_cgroup
 
 	set_cgroups_path
 	set_resources_limit
@@ -87,7 +87,7 @@ function setup() {
 
 	runc exec test_cgroups_group cat /proc/self/cgroup
 	[ "$status" -eq 0 ]
-	[[ ${lines[0]} == "0::/" ]]
+	[[ ${lines[0]} = "0::/" ]]
 
 	runc exec test_cgroups_group mkdir /sys/fs/cgroup/foo
 	[ "$status" -eq 0 ]
@@ -99,7 +99,7 @@ function setup() {
 	# because we haven't enabled any domain controller.
 	runc exec test_cgroups_group cat /proc/self/cgroup
 	[ "$status" -eq 0 ]
-	[[ ${lines[0]} == "0::/" ]]
+	[[ ${lines[0]} = "0::/" ]]
 
 	# turn on a domain controller (memory)
 	runc exec test_cgroups_group sh -euxc 'echo $$ > /sys/fs/cgroup/foo/cgroup.procs; echo +memory > /sys/fs/cgroup/cgroup.subtree_control'
@@ -109,7 +109,7 @@ function setup() {
 	# falls back to "/foo".
 	runc exec test_cgroups_group cat /proc/self/cgroup
 	[ "$status" -eq 0 ]
-	[[ ${lines[0]} == "0::/foo" ]]
+	[[ ${lines[0]} = "0::/foo" ]]
 
 	# teardown: remove "/foo"
 	# shellcheck disable=SC2016
@@ -132,8 +132,8 @@ function setup() {
 }
 
 @test "runc run (blkio weight)" {
-	requires cgroups_v2
-	[[ "$ROOTLESS" -ne 0 ]] && requires rootless_cgroup
+	requires cgroups_v2 cgroups_io_weight
+	[ $EUID -ne 0 ] && requires rootless_cgroup
 
 	set_cgroups_path
 	update_config '.linux.resources.blockIO |= {"weight": 750}'
@@ -177,7 +177,7 @@ function setup() {
 	# The loop device itself is no longer needed.
 	losetup -d "$dev"
 
-	if [ "$CGROUP_UNIFIED" = "yes" ]; then
+	if [ -v CGROUP_V2 ]; then
 		file="io.bfq.weight"
 	else
 		file="blkio.bfq.weight_device"
@@ -185,6 +185,50 @@ function setup() {
 	weights=$(get_cgroup_value $file)
 	[[ "$weights" == *"default 333"* ]]
 	[[ "$weights" == *"$major:$minor 444"* ]]
+}
+
+@test "runc run (per-device multiple iops via unified)" {
+	requires root cgroups_v2
+
+	dd if=/dev/zero of=backing1.img bs=4096 count=1
+	dev1=$(losetup --find --show backing1.img) || skip "unable to create a loop device"
+
+	# Second device.
+	dd if=/dev/zero of=backing2.img bs=4096 count=1
+	dev2=$(losetup --find --show backing2.img) || skip "unable to create a loop device"
+
+	set_cgroups_path
+
+	IFS=$' \t:' read -r major1 minor1 <<<"$(lsblk -nd -o MAJ:MIN "$dev1")"
+	IFS=$' \t:' read -r major2 minor2 <<<"$(lsblk -nd -o MAJ:MIN "$dev2")"
+	update_config '	  .linux.devices += [
+				{path: "'"$dev1"'", type: "b", major: '"$major1"', minor: '"$minor1"'},
+				{path: "'"$dev2"'", type: "b", major: '"$major2"', minor: '"$minor2"'}
+			   ]
+			| .linux.resources.unified |=
+				{"io.max": "'"$major1"':'"$minor1"' riops=333 wiops=444\n'"$major2"':'"$minor2"' riops=555 wiops=666\n"}'
+	runc run -d --console-socket "$CONSOLE_SOCKET" test_dev_weight
+	[ "$status" -eq 0 ]
+
+	# The loop devices are no longer needed.
+	losetup -d "$dev1"
+	losetup -d "$dev2"
+
+	weights=$(get_cgroup_value "io.max")
+	grep "^$major1:$minor1 .* riops=333 wiops=444$" <<<"$weights"
+	grep "^$major2:$minor2 .* riops=555 wiops=666$" <<<"$weights"
+}
+
+@test "runc run (cpu.idle)" {
+	requires cgroups_cpu_idle
+	[ $EUID -ne 0 ] && requires rootless_cgroup
+
+	set_cgroups_path
+	update_config '.linux.resources.cpu.idle = 1'
+
+	runc run -d --console-socket "$CONSOLE_SOCKET" test_cgroups_unified
+	[ "$status" -eq 0 ]
+	check_cgroup_value "cpu.idle" "1"
 }
 
 # Convert size in KB to hugetlb size suffix.
@@ -231,7 +275,7 @@ convert_hugetlb_size() {
 	[ "$status" -eq 0 ]
 
 	lim="max"
-	[ "$CGROUP_UNIFIED" = "no" ] && lim="limit_in_bytes"
+	[ -v CGROUP_V1 ] && lim="limit_in_bytes"
 
 	optional=("")
 	# Add rsvd, if available.
@@ -260,7 +304,6 @@ convert_hugetlb_size() {
 				"memory.low":   "524288",
 				"memory.high": "5242880",
 				"memory.max": "10485760",
-				"memory.swap.max": "20971520",
 				"pids.max": "99",
 				"cpu.max": "10000 100000",
 				"cpu.weight": "42"
@@ -277,7 +320,6 @@ convert_hugetlb_size() {
 	echo "$output" | grep -q '^memory.low:524288$'
 	echo "$output" | grep -q '^memory.high:5242880$'
 	echo "$output" | grep -q '^memory.max:10485760$'
-	echo "$output" | grep -q '^memory.swap.max:20971520$'
 	echo "$output" | grep -q '^pids.max:99$'
 	echo "$output" | grep -q '^cpu.max:10000 100000$'
 
@@ -285,10 +327,32 @@ convert_hugetlb_size() {
 	check_systemd_value "MemoryLow" 524288
 	check_systemd_value "MemoryHigh" 5242880
 	check_systemd_value "MemoryMax" 10485760
-	check_systemd_value "MemorySwapMax" 20971520
 	check_systemd_value "TasksMax" 99
 	check_cpu_quota 10000 100000 "100ms"
 	check_cpu_weight 42
+}
+
+@test "runc run (cgroup v2 resources.unified swap)" {
+	requires root cgroups_v2 cgroups_swap
+
+	set_cgroups_path
+	update_config ' .linux.resources.unified |= {
+				"memory.max": "20484096",
+				"memory.swap.max": "20971520"
+			}'
+
+	runc run -d --console-socket "$CONSOLE_SOCKET" test_cgroups_unified
+	[ "$status" -eq 0 ]
+
+	runc exec test_cgroups_unified sh -c 'cd /sys/fs/cgroup && grep . *.max'
+	[ "$status" -eq 0 ]
+	echo "$output"
+
+	echo "$output" | grep -q '^memory.max:20484096$'
+	echo "$output" | grep -q '^memory.swap.max:20971520$'
+
+	check_systemd_value "MemoryMax" 20484096
+	check_systemd_value "MemorySwapMax" 20971520
 }
 
 @test "runc run (cgroup v2 resources.unified override)" {
@@ -333,7 +397,7 @@ convert_hugetlb_size() {
 
 @test "runc run (cgroupv2 mount inside container)" {
 	requires cgroups_v2
-	[[ "$ROOTLESS" -ne 0 ]] && requires rootless_cgroup
+	[ $EUID -ne 0 ] && requires rootless_cgroup
 
 	set_cgroups_path
 
@@ -364,14 +428,12 @@ convert_hugetlb_size() {
 	[[ $exec_cgroup == *"runc-cgroups-integration-test"* ]]
 
 	# check that the cgroups v2 path is the same for both processes
-	[[ "$run_cgroup" == "$exec_cgroup" ]]
+	[ "$run_cgroup" = "$exec_cgroup" ]
 }
 
 @test "runc exec should refuse a paused container" {
-	if [[ "$ROOTLESS" -ne 0 ]]; then
-		requires rootless_cgroup
-	fi
 	requires cgroups_freezer
+	[ $EUID -ne 0 ] && requires rootless_cgroup
 
 	set_cgroups_path
 
@@ -387,10 +449,8 @@ convert_hugetlb_size() {
 }
 
 @test "runc exec --ignore-paused" {
-	if [[ "$ROOTLESS" -ne 0 ]]; then
-		requires rootless_cgroup
-	fi
 	requires cgroups_freezer
+	[ $EUID -ne 0 ] && requires rootless_cgroup
 
 	set_cgroups_path
 
@@ -411,54 +471,40 @@ convert_hugetlb_size() {
 	[ "$output" = "ok" ]
 }
 
-@test "runc run/create should error/warn about a non-empty cgroup" {
-	if [[ "$ROOTLESS" -ne 0 ]]; then
-		requires rootless_cgroup
-	fi
+@test "runc run/create should error for a non-empty cgroup" {
+	[ $EUID -ne 0 ] && requires rootless_cgroup
 
 	set_cgroups_path
 
 	runc run -d --console-socket "$CONSOLE_SOCKET" ct1
 	[ "$status" -eq 0 ]
 
-	# When systemd driver is used, runc can't add PID to an existing unit,
-	# so runc returns an error. For backward compatibility, we still allow
-	# such configuration in 1.1, but only when systemd driver is NOT used.
-	# See https://github.com/opencontainers/runc/issues/3780.
-	local exp=0
-	[[ -n "${RUNC_USE_SYSTEMD}" ]] && exp=1
-
 	# Run a second container sharing the cgroup with the first one.
 	runc --debug run -d --console-socket "$CONSOLE_SOCKET" ct2
-	[ "$status" -eq "$exp" ]
+	[ "$status" -ne 0 ]
 	[[ "$output" == *"container's cgroup is not empty"* ]]
 
 	# Same but using runc create.
 	runc create --console-socket "$CONSOLE_SOCKET" ct3
-	[ "$status" -eq "$exp" ]
+	[ "$status" -ne 0 ]
 	[[ "$output" == *"container's cgroup is not empty"* ]]
 }
 
 @test "runc run/create should refuse pre-existing frozen cgroup" {
 	requires cgroups_freezer
-	if [[ "$ROOTLESS" -ne 0 ]]; then
-		requires rootless_cgroup
-	fi
+	[ $EUID -ne 0 ] && requires rootless_cgroup
 
 	set_cgroups_path
 
-	case $CGROUP_UNIFIED in
-	no)
+	if [ -v CGROUP_V1 ]; then
 		FREEZER_DIR="${CGROUP_FREEZER_BASE_PATH}/${REL_CGROUPS_PATH}"
 		FREEZER="${FREEZER_DIR}/freezer.state"
 		STATE="FROZEN"
-		;;
-	yes)
-		FREEZER_DIR="${CGROUP_PATH}"
+	else
+		FREEZER_DIR="${CGROUP_V2_PATH}"
 		FREEZER="${FREEZER_DIR}/cgroup.freeze"
 		STATE="1"
-		;;
-	esac
+	fi
 
 	# Create and freeze the cgroup.
 	mkdir -p "$FREEZER_DIR"

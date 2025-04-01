@@ -22,7 +22,7 @@ function teardown() {
 
 @test "runc run ({u,g}id != 0)" {
 	# cannot start containers as another user in rootless setup without idmap
-	[[ "$ROOTLESS" -ne 0 ]] && requires rootless_idmap
+	[ $EUID -ne 0 ] && requires rootless_idmap
 
 	# replace "uid": 0 with "uid": 1000
 	# and do a similar thing for gid.
@@ -58,6 +58,8 @@ function teardown() {
 	# Enable CAP_DAC_OVERRIDE.
 	update_config '	  .process.capabilities.bounding += ["CAP_DAC_OVERRIDE"]
 			| .process.capabilities.effective += ["CAP_DAC_OVERRIDE"]
+			| .process.capabilities.inheritable += ["CAP_DAC_OVERRIDE"]
+			| .process.capabilities.ambient += ["CAP_DAC_OVERRIDE"]
 			| .process.capabilities.permitted += ["CAP_DAC_OVERRIDE"]'
 
 	runc run test_busybox

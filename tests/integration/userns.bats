@@ -12,14 +12,14 @@ function setup() {
 	# Permissions only to the owner, it is inaccessible to group/others
 	chmod 700 source-inaccessible-{1,2}
 
-	mkdir -p rootfs/{proc,sys,tmp}
 	mkdir -p rootfs/tmp/mount-{1,2}
 
 	to_umount_list="$(mktemp "$BATS_RUN_TMPDIR/userns-mounts.XXXXXX")"
-	if [ "$ROOTLESS" -eq 0 ]; then
+	if [ $EUID -eq 0 ]; then
 		update_config ' .linux.namespaces += [{"type": "user"}]
 			| .linux.uidMappings += [{"hostID": 100000, "containerID": 0, "size": 65534}]
 			| .linux.gidMappings += [{"hostID": 200000, "containerID": 0, "size": 65534}] '
+		remap_rootfs
 	fi
 }
 
@@ -123,6 +123,26 @@ function teardown() {
 	else
 		grep -E '^\s+0\s+'$EUID'\s+1$' <<<"$output"
 	fi
+}
+
+# issue: https://github.com/opencontainers/runc/issues/4466
+@test "userns join other container userns[selinux enabled]" {
+	if ! selinuxenabled; then
+		skip "requires SELinux enabled and in enforcing mode"
+	fi
+	# Create a detached container with the id-mapping we want.
+	update_config '.process.args = ["sleep", "infinity"]'
+	runc run -d --console-socket "$CONSOLE_SOCKET" target_userns
+	[ "$status" -eq 0 ]
+
+	# Configure our container to attach to the first container's userns.
+	target_pid="$(__runc state target_userns | jq .pid)"
+	update_config '.linux.namespaces |= map(if .type == "user" then (.path = "/proc/'"$target_pid"'/ns/" + .type) else . end)
+		| del(.linux.uidMappings)
+		| del(.linux.gidMappings)
+		| .linux.mountLabel="system_u:object_r:container_file_t:s0:c344,c805"'
+	runc run -d --console-socket "$CONSOLE_SOCKET" in_userns
+	[ "$status" -eq 0 ]
 }
 
 @test "userns join other container userns [bind-mounted nsfd]" {

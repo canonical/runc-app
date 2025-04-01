@@ -115,7 +115,6 @@ func testExecInRlimit(t *testing.T, userns bool) {
 			// increase process rlimit higher than container rlimit to test per-process limit
 			{Type: unix.RLIMIT_NOFILE, Hard: 1026, Soft: 1026},
 		},
-		Init: true,
 	}
 	err = container.Run(ps)
 	ok(t, err)
@@ -215,12 +214,10 @@ func TestExecInError(t *testing.T) {
 	ok(t, err)
 
 	for i := 0; i < 42; i++ {
-		var out bytes.Buffer
 		unexistent := &libcontainer.Process{
-			Cwd:    "/",
-			Args:   []string{"unexistent"},
-			Env:    standardEnvironment,
-			Stderr: &out,
+			Cwd:  "/",
+			Args: []string{"unexistent"},
+			Env:  standardEnvironment,
 		}
 		err = container.Run(unexistent)
 		if err == nil {
@@ -228,9 +225,6 @@ func TestExecInError(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "executable file not found") {
 			t.Fatalf("Should be error about not found executable, got %s", err)
-		}
-		if !bytes.Contains(out.Bytes(), []byte("executable file not found")) {
-			t.Fatalf("executable file not found error not delivered to stdio:\n%s", out.String())
 		}
 	}
 }
@@ -282,9 +276,9 @@ func TestExecInTTY(t *testing.T) {
 
 		done := make(chan (error))
 		go func() {
-			f, err := utils.RecvFd(parent)
+			f, err := utils.RecvFile(parent)
 			if err != nil {
-				done <- fmt.Errorf("RecvFd: %w", err)
+				done <- fmt.Errorf("RecvFile: %w", err)
 				return
 			}
 			c, err := console.ConsoleFromFile(f)
@@ -364,7 +358,6 @@ func TestExecInEnvironment(t *testing.T) {
 		Stdin:  buffers.Stdin,
 		Stdout: buffers.Stdout,
 		Stderr: buffers.Stderr,
-		Init:   true,
 	}
 	err = container.Run(process2)
 	ok(t, err)

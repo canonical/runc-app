@@ -75,22 +75,6 @@ func newTemplateConfig(t *testing.T, p *tParam) *configs.Config {
 				"CAP_KILL",
 				"CAP_AUDIT_WRITE",
 			},
-			Ambient: []string{
-				"CAP_CHOWN",
-				"CAP_DAC_OVERRIDE",
-				"CAP_FSETID",
-				"CAP_FOWNER",
-				"CAP_MKNOD",
-				"CAP_NET_RAW",
-				"CAP_SETGID",
-				"CAP_SETUID",
-				"CAP_SETFCAP",
-				"CAP_SETPCAP",
-				"CAP_NET_BIND_SERVICE",
-				"CAP_SYS_CHROOT",
-				"CAP_KILL",
-				"CAP_AUDIT_WRITE",
-			},
 			Effective: []string{
 				"CAP_CHOWN",
 				"CAP_DAC_OVERRIDE",
@@ -129,8 +113,9 @@ func newTemplateConfig(t *testing.T, p *tParam) *configs.Config {
 		ReadonlyPaths: []string{
 			"/proc/sys", "/proc/sysrq-trigger", "/proc/irq", "/proc/bus",
 		},
-		Devices:  specconv.AllowedDevices,
-		Hostname: "integration",
+		Devices:    specconv.AllowedDevices,
+		Hostname:   "integration",
+		Domainname: "integration",
 		Mounts: []*configs.Mount{
 			{
 				Source:      "proc",
@@ -192,8 +177,8 @@ func newTemplateConfig(t *testing.T, p *tParam) *configs.Config {
 	}
 
 	if p.userns {
-		config.UidMappings = []configs.IDMap{{HostID: 0, ContainerID: 0, Size: 1000}}
-		config.GidMappings = []configs.IDMap{{HostID: 0, ContainerID: 0, Size: 1000}}
+		config.UIDMappings = []configs.IDMap{{HostID: 0, ContainerID: 0, Size: 1000}}
+		config.GIDMappings = []configs.IDMap{{HostID: 0, ContainerID: 0, Size: 1000}}
 		config.Namespaces = append(config.Namespaces, configs.Namespace{Type: configs.NEWUSER})
 	} else {
 		config.Mounts = append(config.Mounts, &configs.Mount{

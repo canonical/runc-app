@@ -42,6 +42,7 @@ function scmp_act_notify_template() {
 # noNewPrivileges, for this reason many of the following cases are tested with
 # both values.
 
+# Test basic actions handled by the agent work fine. noNewPrivileges FALSE.
 @test "runc run [seccomp] (SCMP_ACT_NOTIFY noNewPrivileges false)" {
 	scmp_act_notify_template "mkdir /dev/shm/foo && stat /dev/shm/foo-bar" false '"mkdir"'
 
@@ -49,6 +50,7 @@ function scmp_act_notify_template() {
 	[ "$status" -eq 0 ]
 }
 
+# Test basic actions handled by the agent work fine. noNewPrivileges TRUE.
 @test "runc run [seccomp] (SCMP_ACT_NOTIFY noNewPrivileges true)" {
 	scmp_act_notify_template "mkdir /dev/shm/foo && stat /dev/shm/foo-bar" true '"mkdir"'
 
@@ -56,6 +58,7 @@ function scmp_act_notify_template() {
 	[ "$status" -eq 0 ]
 }
 
+# Test actions not-handled by the agent work fine. noNewPrivileges FALSE.
 @test "runc exec [seccomp] (SCMP_ACT_NOTIFY noNewPrivileges false)" {
 	requires root
 
@@ -68,6 +71,7 @@ function scmp_act_notify_template() {
 	[ "$status" -eq 0 ]
 }
 
+# Test actions not-handled by the agent work fine. noNewPrivileges TRUE.
 @test "runc exec [seccomp] (SCMP_ACT_NOTIFY noNewPrivileges true)" {
 	requires root
 
@@ -78,21 +82,25 @@ function scmp_act_notify_template() {
 	[ "$status" -eq 0 ]
 }
 
+# Test important syscalls (some might be executed by runc) work fine when handled by the agent. noNewPrivileges FALSE.
+# fcntl: https://github.com/opencontainers/runc/issues/4328
 @test "runc run [seccomp] (SCMP_ACT_NOTIFY important syscalls noNewPrivileges false)" {
-	scmp_act_notify_template "/bin/true" false '"execve","openat","open","read","close"'
+	scmp_act_notify_template "/bin/true" false '"execve","openat","open","read","close","fcntl"'
 
 	runc run test_busybox
 	[ "$status" -eq 0 ]
 }
 
+# Test important syscalls (some might be executed by runc) work fine when handled by the agent. noNewPrivileges TRUE.
 @test "runc run [seccomp] (SCMP_ACT_NOTIFY important syscalls noNewPrivileges true)" {
-	scmp_act_notify_template "/bin/true" true '"execve","openat","open","read","close"'
+	scmp_act_notify_template "/bin/true" true '"execve","openat","open","read","close","fcntl"'
 
 	runc run test_busybox
 	[ "$status" -eq 0 ]
 }
 
-@test "runc run [seccomp] (empty listener path)" {
+# Ignore listenerPath if the profile doesn't use seccomp notify actions.
+@test "runc run [seccomp] (ignore listener path if no notify act)" {
 	update_config '   .process.args = ["/bin/sh", "-c", "mkdir /dev/shm/foo && stat /dev/shm/foo"]
 			| .linux.seccomp = {
 				"defaultAction":"SCMP_ACT_ALLOW",
@@ -104,7 +112,8 @@ function scmp_act_notify_template() {
 	[ "$status" -eq 0 ]
 }
 
-@test "runc run [seccomp] (SCMP_ACT_NOTIFY empty listener path)" {
+# Ensure listenerPath is present if the profile uses seccomp notify actions.
+@test "runc run [seccomp] (SCMP_ACT_NOTIFY empty listener path and notify act)" {
 	scmp_act_notify_template "/bin/true" false '"mkdir"'
 	update_config '.linux.seccomp.listenerPath = ""'
 
@@ -112,6 +121,7 @@ function scmp_act_notify_template() {
 	[ "$status" -ne 0 ]
 }
 
+# Test using an invalid socket (none listening) as listenerPath fails.
 @test "runc run [seccomp] (SCMP_ACT_NOTIFY wrong listener path)" {
 	scmp_act_notify_template "/bin/true" false '"mkdir"'
 	update_config '.linux.seccomp.listenerPath = "/some-non-existing-listener-path.sock"'
@@ -120,7 +130,8 @@ function scmp_act_notify_template() {
 	[ "$status" -ne 0 ]
 }
 
-@test "runc run [seccomp] (SCMP_ACT_NOTIFY abstract listener path)" {
+# Test using an invalid abstract socket as listenerPath fails.
+@test "runc run [seccomp] (SCMP_ACT_NOTIFY wrong abstract listener path)" {
 	scmp_act_notify_template "/bin/true" false '"mkdir"'
 	update_config '.linux.seccomp.listenerPath = "@mysocketishere"'
 
@@ -203,7 +214,7 @@ function scmp_act_notify_template() {
 @test "runc run [seccomp] (SCMP_ACT_NOTIFY example config)" {
 	# Run the script used in the seccomp agent example.
 	# This takes a bare config.json and modifies it to run an example.
-	"${INTEGRATION_ROOT}/../../contrib/cmd/seccompagent/gen-seccomp-example-cfg.sh"
+	"${INTEGRATION_ROOT}/../../tests/cmd/seccompagent/gen-seccomp-example-cfg.sh"
 
 	# The listenerPath the previous command uses is the default used by the
 	# seccomp agent. However, inside bats the socket is in a bats tmp dir.

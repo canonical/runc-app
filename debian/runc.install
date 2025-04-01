@@ -1,1 +1,1 @@
-_build/bin/*    /usr/sbin/
+_build/bin/runc    /usr/sbin/

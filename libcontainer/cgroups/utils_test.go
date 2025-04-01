@@ -3,11 +3,13 @@ package cgroups
 import (
 	"bytes"
 	"errors"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/moby/sys/mountinfo"
+	"golang.org/x/sys/unix"
 )
 
 const fedoraMountinfo = `15 35 0:3 / /proc rw,nosuid,nodev,noexec,relatime shared:5 - proc proc rw
@@ -554,82 +556,97 @@ func TestConvertCPUSharesToCgroupV2Value(t *testing.T) {
 
 func TestConvertMemorySwapToCgroupV2Value(t *testing.T) {
 	cases := []struct {
+		descr           string
 		memswap, memory int64
 		expected        int64
 		expErr          bool
 	}{
 		{
+			descr:    "all unset",
 			memswap:  0,
 			memory:   0,
 			expected: 0,
 		},
 		{
+			descr:    "unlimited memory+swap, unset memory",
 			memswap:  -1,
 			memory:   0,
 			expected: -1,
 		},
 		{
+			descr:    "unlimited memory",
+			memswap:  300,
+			memory:   -1,
+			expected: 300,
+		},
+		{
+			descr:    "all unlimited",
 			memswap:  -1,
 			memory:   -1,
 			expected: -1,
 		},
 		{
+			descr:   "negative memory+swap",
 			memswap: -2,
 			memory:  0,
 			expErr:  true,
 		},
 		{
+			descr:    "unlimited memory+swap, set memory",
 			memswap:  -1,
 			memory:   1000,
 			expected: -1,
 		},
 		{
+			descr:    "memory+swap == memory",
 			memswap:  1000,
 			memory:   1000,
 			expected: 0,
 		},
 		{
+			descr:    "memory+swap > memory",
 			memswap:  500,
 			memory:   200,
 			expected: 300,
 		},
 		{
+			descr:   "memory+swap < memory",
 			memswap: 300,
 			memory:  400,
 			expErr:  true,
 		},
 		{
+			descr:   "unset memory",
 			memswap: 300,
 			memory:  0,
 			expErr:  true,
 		},
 		{
+			descr:   "negative memory",
 			memswap: 300,
 			memory:  -300,
-			expErr:  true,
-		},
-		{
-			memswap: 300,
-			memory:  -1,
 			expErr:  true,
 		},
 	}
 
 	for _, c := range cases {
-		swap, err := ConvertMemorySwapToCgroupV2Value(c.memswap, c.memory)
-		if c.expErr {
-			if err == nil {
-				t.Errorf("memswap: %d, memory %d, expected error, got %d, nil", c.memswap, c.memory, swap)
+		c := c
+		t.Run(c.descr, func(t *testing.T) {
+			swap, err := ConvertMemorySwapToCgroupV2Value(c.memswap, c.memory)
+			if c.expErr {
+				if err == nil {
+					t.Errorf("memswap: %d, memory %d, expected error, got %d, nil", c.memswap, c.memory, swap)
+				}
+				// No more checks.
+				return
 			}
-			// no more checks
-			continue
-		}
-		if err != nil {
-			t.Errorf("memswap: %d, memory %d, expected success, got error %s", c.memswap, c.memory, err)
-		}
-		if swap != c.expected {
-			t.Errorf("memswap: %d, memory %d, expected %d, got %d", c.memswap, c.memory, c.expected, swap)
-		}
+			if err != nil {
+				t.Errorf("memswap: %d, memory %d, expected success, got error %s", c.memswap, c.memory, err)
+			}
+			if swap != c.expected {
+				t.Errorf("memswap: %d, memory %d, expected %d, got %d", c.memswap, c.memory, c.expected, swap)
+			}
+		})
 	}
 }
 
@@ -644,5 +661,31 @@ func TestConvertBlkIOToIOWeightValue(t *testing.T) {
 		if got != expected {
 			t.Errorf("expected ConvertBlkIOToIOWeightValue(%d) to be %d, got %d", i, expected, got)
 		}
+	}
+}
+
+// TestRemovePathReadOnly is to test remove a non-existent dir in a ro mount point.
+// The similar issue example: https://github.com/opencontainers/runc/issues/4518
+func TestRemovePathReadOnly(t *testing.T) {
+	dirTo := t.TempDir()
+	err := unix.Mount(t.TempDir(), dirTo, "", unix.MS_BIND, "")
+	if err != nil {
+		t.Skip("no permission of mount")
+	}
+	defer func() {
+		_ = unix.Unmount(dirTo, 0)
+	}()
+	err = unix.Mount("", dirTo, "", unix.MS_REMOUNT|unix.MS_BIND|unix.MS_RDONLY, "")
+	if err != nil {
+		t.Skip("no permission of mount")
+	}
+	nonExistentDir := filepath.Join(dirTo, "non-existent-dir")
+	err = rmdir(nonExistentDir, true)
+	if !errors.Is(err, unix.EROFS) {
+		t.Fatalf("expected the error of removing a non-existent dir %s in a ro mount point with rmdir to be unix.EROFS, but got: %v", nonExistentDir, err)
+	}
+	err = RemovePath(nonExistentDir)
+	if err != nil {
+		t.Fatalf("expected the error of removing a non-existent dir %s in a ro mount point with RemovePath to be nil, but got: %v", nonExistentDir, err)
 	}
 }

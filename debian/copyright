@@ -11,7 +11,7 @@ Copyright: 2017-2023 SUSE LLC
            2017-2023 Open Containers Authors
 License: Apache-2.0
 
-Files: contrib/cmd/recvtty/recvtty.go
+Files: tests/cmd/recvtty/recvtty.go
        libcontainer/utils/cmsg.go
        tests/rootless.sh
 Copyright: 2016-2017 SUSE LLC
@@ -25,11 +25,6 @@ Files: libcontainer/cgroups/devices/devices_emulator*.go
 Copyright: 2020 Aleksa Sarai <cyphar@cyphar.com>
            2020 SUSE LLC
 License: Apache-2.0
-
-Files: libcontainer/nsenter/cloned_binary.c
-Copyright: 2019 Aleksa Sarai <cyphar@cyphar.com>
-           2019 SUSE LLC
-License: Apache-2.0 OR LGPL-2.1+
 
 Files: debian/*
 Copyright: 2015      Alexandre Viau <alexandre@alexandreviau.net>
@@ -63,10 +58,6 @@ License: BSD-2-clause
 Files: vendor/github.com/russross/blackfriday/v2/*
 Copyright: 2011 Russ Ross
 License: BSD-2-clause
-
-Files: vendor/github.com/shurcooL/sanitized_anchor_name/*
-Copyright: 2015 Dmitri Shuralyov
-License: Expat
 
 Files: vendor/github.com/cpuguy83/go-md2man/v2/*
 Copyright: 2014 Brian Goff

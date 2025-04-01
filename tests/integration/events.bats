@@ -10,23 +10,8 @@ function teardown() {
 	teardown_bundle
 }
 
-# shellcheck disable=SC2030
-@test "events --stats" {
-	# XXX: currently cgroups require root containers.
-	requires root
-	init_cgroup_paths
-
-	# run busybox detached
-	runc run -d --console-socket "$CONSOLE_SOCKET" test_busybox
-	[ "$status" -eq 0 ]
-
-	# generate stats
-	runc events --stats test_busybox
-	[ "$status" -eq 0 ]
-	[[ "${lines[0]}" == [\{]"\"type\""[:]"\"stats\""[,]"\"id\""[:]"\"test_busybox\""[,]* ]]
-	[[ "${lines[0]}" == *"data"* ]]
-}
-
+# This needs to be placed at the top of the bats file to work around
+# a shellcheck bug. See <https://github.com/koalaman/shellcheck/issues/2873>.
 function test_events() {
 	# XXX: currently cgroups require root containers.
 	requires root
@@ -39,7 +24,6 @@ function test_events() {
 	fi
 
 	runc run -d --console-socket "$CONSOLE_SOCKET" test_busybox
-	# shellcheck disable=SC2031
 	[ "$status" -eq 0 ]
 
 	# Spawn two subshels:
@@ -58,6 +42,50 @@ function test_events() {
 	output=$(head -1 events.log)
 	[[ "$output" == [\{]"\"type\""[:]"\"stats\""[,]"\"id\""[:]"\"test_busybox\""[,]* ]]
 	[[ "$output" == *"data"* ]]
+}
+
+@test "events --stats" {
+	# XXX: currently cgroups require root containers.
+	requires root
+	init_cgroup_paths
+
+	# run busybox detached
+	runc run -d --console-socket "$CONSOLE_SOCKET" test_busybox
+	[ "$status" -eq 0 ]
+
+	# generate stats
+	runc events --stats test_busybox
+	[ "$status" -eq 0 ]
+	[[ "${lines[0]}" == [\{]"\"type\""[:]"\"stats\""[,]"\"id\""[:]"\"test_busybox\""[,]* ]]
+	[[ "${lines[0]}" == *"data"* ]]
+}
+
+@test "events --stats with psi data" {
+	requires root cgroups_v2 psi
+	init_cgroup_paths
+
+	update_config '.linux.resources.cpu |= { "quota": 1000 }'
+
+	runc run -d --console-socket "$CONSOLE_SOCKET" test_busybox
+	[ "$status" -eq 0 ]
+
+	# Stress the CPU a bit. Need something that runs for more than 10s.
+	runc exec test_busybox dd if=/dev/zero bs=1 count=128K of=/dev/null
+	[ "$status" -eq 0 ]
+
+	runc exec test_busybox sh -c 'tail /sys/fs/cgroup/*.pressure'
+
+	runc events --stats test_busybox
+	[ "$status" -eq 0 ]
+
+	# Check PSI metrics.
+	jq '.data.cpu.psi' <<<"${lines[0]}"
+	for psi_type in some full; do
+		for psi_metric in avg10 avg60 avg300 total; do
+			echo -n "checking .data.cpu.psi.$psi_type.$psi_metric != 0: "
+			jq -e '.data.cpu.psi.'$psi_type.$psi_metric' != 0' <<<"${lines[0]}"
+		done
+	done
 }
 
 @test "events --interval default" {

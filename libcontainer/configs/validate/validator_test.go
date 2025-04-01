@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/opencontainers/runc/libcontainer/configs"
+	"github.com/opencontainers/runtime-spec/specs-go"
 	"golang.org/x/sys/unix"
 )
 
@@ -14,8 +15,7 @@ func TestValidate(t *testing.T) {
 		Rootfs: "/var",
 	}
 
-	validator := New()
-	err := validator.Validate(config)
+	err := Validate(config)
 	if err != nil {
 		t.Errorf("Expected error to not occur: %+v", err)
 	}
@@ -32,8 +32,7 @@ func TestValidateWithInvalidRootfs(t *testing.T) {
 		Rootfs: dir,
 	}
 
-	validator := New()
-	err := validator.Validate(config)
+	err := Validate(config)
 	if err == nil {
 		t.Error("Expected error to occur but it was nil")
 	}
@@ -47,8 +46,7 @@ func TestValidateNetworkWithoutNETNamespace(t *testing.T) {
 		Networks:   []*configs.Network{network},
 	}
 
-	validator := New()
-	err := validator.Validate(config)
+	err := Validate(config)
 	if err == nil {
 		t.Error("Expected error to occur but it was nil")
 	}
@@ -62,8 +60,7 @@ func TestValidateNetworkRoutesWithoutNETNamespace(t *testing.T) {
 		Routes:     []*configs.Route{route},
 	}
 
-	validator := New()
-	err := validator.Validate(config)
+	err := Validate(config)
 	if err == nil {
 		t.Error("Expected error to occur but it was nil")
 	}
@@ -80,21 +77,47 @@ func TestValidateHostname(t *testing.T) {
 		),
 	}
 
-	validator := New()
-	err := validator.Validate(config)
+	err := Validate(config)
 	if err != nil {
 		t.Errorf("Expected error to not occur: %+v", err)
 	}
 }
 
-func TestValidateHostnameWithoutUTSNamespace(t *testing.T) {
+func TestValidateUTS(t *testing.T) {
+	config := &configs.Config{
+		Rootfs:     "/var",
+		Domainname: "runc",
+		Hostname:   "runc",
+		Namespaces: configs.Namespaces(
+			[]configs.Namespace{
+				{Type: configs.NEWUTS},
+			},
+		),
+	}
+
+	err := Validate(config)
+	if err != nil {
+		t.Errorf("Expected error to not occur: %+v", err)
+	}
+}
+
+func TestValidateUTSWithoutUTSNamespace(t *testing.T) {
 	config := &configs.Config{
 		Rootfs:   "/var",
 		Hostname: "runc",
 	}
 
-	validator := New()
-	err := validator.Validate(config)
+	err := Validate(config)
+	if err == nil {
+		t.Error("Expected error to occur but it was nil")
+	}
+
+	config = &configs.Config{
+		Rootfs:     "/var",
+		Domainname: "runc",
+	}
+
+	err = Validate(config)
 	if err == nil {
 		t.Error("Expected error to occur but it was nil")
 	}
@@ -111,8 +134,7 @@ func TestValidateSecurityWithMaskPaths(t *testing.T) {
 		),
 	}
 
-	validator := New()
-	err := validator.Validate(config)
+	err := Validate(config)
 	if err != nil {
 		t.Errorf("Expected error to not occur: %+v", err)
 	}
@@ -129,8 +151,7 @@ func TestValidateSecurityWithROPaths(t *testing.T) {
 		),
 	}
 
-	validator := New()
-	err := validator.Validate(config)
+	err := Validate(config)
 	if err != nil {
 		t.Errorf("Expected error to not occur: %+v", err)
 	}
@@ -143,8 +164,7 @@ func TestValidateSecurityWithoutNEWNS(t *testing.T) {
 		ReadonlyPaths: []string{"/proc/sys"},
 	}
 
-	validator := New()
-	err := validator.Validate(config)
+	err := Validate(config)
 	if err == nil {
 		t.Error("Expected error to occur but it was nil")
 	}
@@ -161,12 +181,11 @@ func TestValidateUserNamespace(t *testing.T) {
 				{Type: configs.NEWUSER},
 			},
 		),
-		UidMappings: []configs.IDMap{{HostID: 0, ContainerID: 123, Size: 100}},
-		GidMappings: []configs.IDMap{{HostID: 0, ContainerID: 123, Size: 100}},
+		UIDMappings: []configs.IDMap{{HostID: 0, ContainerID: 123, Size: 100}},
+		GIDMappings: []configs.IDMap{{HostID: 0, ContainerID: 123, Size: 100}},
 	}
 
-	validator := New()
-	err := validator.Validate(config)
+	err := Validate(config)
 	if err != nil {
 		t.Errorf("expected error to not occur %+v", err)
 	}
@@ -175,12 +194,68 @@ func TestValidateUserNamespace(t *testing.T) {
 func TestValidateUsernsMappingWithoutNamespace(t *testing.T) {
 	config := &configs.Config{
 		Rootfs:      "/var",
-		UidMappings: []configs.IDMap{{HostID: 0, ContainerID: 123, Size: 100}},
-		GidMappings: []configs.IDMap{{HostID: 0, ContainerID: 123, Size: 100}},
+		UIDMappings: []configs.IDMap{{HostID: 0, ContainerID: 123, Size: 100}},
+		GIDMappings: []configs.IDMap{{HostID: 0, ContainerID: 123, Size: 100}},
 	}
 
-	validator := New()
-	err := validator.Validate(config)
+	err := Validate(config)
+	if err == nil {
+		t.Error("Expected error to occur but it was nil")
+	}
+}
+
+func TestValidateTimeNamespace(t *testing.T) {
+	if _, err := os.Stat("/proc/self/ns/time"); os.IsNotExist(err) {
+		t.Skip("Test requires timens.")
+	}
+	config := &configs.Config{
+		Rootfs: "/var",
+		Namespaces: configs.Namespaces(
+			[]configs.Namespace{
+				{Type: configs.NEWTIME},
+			},
+		),
+	}
+
+	err := Validate(config)
+	if err != nil {
+		t.Errorf("expected error to not occur %+v", err)
+	}
+}
+
+func TestValidateTimeNamespaceWithBothPathAndTimeOffset(t *testing.T) {
+	if _, err := os.Stat("/proc/self/ns/time"); os.IsNotExist(err) {
+		t.Skip("Test requires timens.")
+	}
+	config := &configs.Config{
+		Rootfs: "/var",
+		Namespaces: configs.Namespaces(
+			[]configs.Namespace{
+				{Type: configs.NEWTIME, Path: "/proc/1/ns/time"},
+			},
+		),
+		TimeOffsets: map[string]specs.LinuxTimeOffset{
+			"boottime":  {Secs: 150, Nanosecs: 314159},
+			"monotonic": {Secs: 512, Nanosecs: 271818},
+		},
+	}
+
+	err := Validate(config)
+	if err == nil {
+		t.Error("Expected error to occur but it was nil")
+	}
+}
+
+func TestValidateTimeOffsetsWithoutTimeNamespace(t *testing.T) {
+	config := &configs.Config{
+		Rootfs: "/var",
+		TimeOffsets: map[string]specs.LinuxTimeOffset{
+			"boottime":  {Secs: 150, Nanosecs: 314159},
+			"monotonic": {Secs: 512, Nanosecs: 271818},
+		},
+	}
+
+	err := Validate(config)
 	if err == nil {
 		t.Error("Expected error to occur but it was nil")
 	}
@@ -228,8 +303,7 @@ func TestValidateSysctl(t *testing.T) {
 			Sysctl: map[string]string{k: v},
 		}
 
-		validator := New()
-		err := validator.Validate(config)
+		err := Validate(config)
 		if err == nil {
 			t.Error("Expected error to occur but it was nil")
 		}
@@ -261,8 +335,7 @@ func TestValidateValidSysctl(t *testing.T) {
 			},
 		}
 
-		validator := New()
-		err := validator.Validate(config)
+		err := Validate(config)
 		if err != nil {
 			t.Errorf("Expected error to not occur with {%s=%s} but got: %q", k, v, err)
 		}
@@ -283,8 +356,7 @@ func TestValidateSysctlWithSameNs(t *testing.T) {
 		),
 	}
 
-	validator := New()
-	err := validator.Validate(config)
+	err := Validate(config)
 	if err == nil {
 		t.Error("Expected error to occur but it was nil")
 	}
@@ -325,8 +397,7 @@ func TestValidateSysctlWithBindHostNetNS(t *testing.T) {
 		),
 	}
 
-	validator := New()
-	if err := validator.Validate(config); err == nil {
+	if err := Validate(config); err == nil {
 		t.Error("Expected error to occur but it was nil")
 	}
 }
@@ -338,8 +409,7 @@ func TestValidateSysctlWithoutNETNamespace(t *testing.T) {
 		Namespaces: []configs.Namespace{},
 	}
 
-	validator := New()
-	err := validator.Validate(config)
+	err := Validate(config)
 	if err == nil {
 		t.Error("Expected error to occur but it was nil")
 	}
@@ -350,17 +420,13 @@ func TestValidateMounts(t *testing.T) {
 		isErr bool
 		dest  string
 	}{
-		// TODO (runc v1.x.x): make these relative paths an error. See https://github.com/opencontainers/runc/pull/3004
 		{isErr: false, dest: "not/an/abs/path"},
 		{isErr: false, dest: "./rel/path"},
 		{isErr: false, dest: "./rel/path"},
 		{isErr: false, dest: "../../path"},
-
 		{isErr: false, dest: "/abs/path"},
 		{isErr: false, dest: "/abs/but/../unclean"},
 	}
-
-	validator := New()
 
 	for _, tc := range testCases {
 		config := &configs.Config{
@@ -370,12 +436,438 @@ func TestValidateMounts(t *testing.T) {
 			},
 		}
 
-		err := validator.Validate(config)
+		err := Validate(config)
 		if tc.isErr && err == nil {
 			t.Errorf("mount dest: %s, expected error, got nil", tc.dest)
 		}
 		if !tc.isErr && err != nil {
 			t.Errorf("mount dest: %s, expected nil, got error %v", tc.dest, err)
+		}
+	}
+}
+
+func TestValidateBindMounts(t *testing.T) {
+	testCases := []struct {
+		isErr bool
+		flags int
+		data  string
+	}{
+		{isErr: false, flags: 0, data: ""},
+		{isErr: false, flags: unix.MS_RDONLY | unix.MS_NOSYMFOLLOW, data: ""},
+
+		{isErr: true, flags: 0, data: "idmap"},
+		{isErr: true, flags: unix.MS_RDONLY, data: "custom_ext4_flag"},
+		{isErr: true, flags: unix.MS_NOATIME, data: "rw=foobar"},
+	}
+
+	for _, tc := range testCases {
+		for _, bind := range []string{"bind", "rbind"} {
+			bindFlag := map[string]int{
+				"bind":  unix.MS_BIND,
+				"rbind": unix.MS_BIND | unix.MS_REC,
+			}[bind]
+
+			config := &configs.Config{
+				Rootfs: "/var",
+				Mounts: []*configs.Mount{
+					{
+						Destination: "/",
+						Flags:       tc.flags | bindFlag,
+						Data:        tc.data,
+					},
+				},
+			}
+
+			err := Validate(config)
+			if tc.isErr && err == nil {
+				t.Errorf("%s mount flags:0x%x data:%v, expected error, got nil", bind, tc.flags, tc.data)
+			}
+			if !tc.isErr && err != nil {
+				t.Errorf("%s mount flags:0x%x data:%v, expected nil, got error %v", bind, tc.flags, tc.data, err)
+			}
+		}
+	}
+}
+
+func TestValidateIDMapMounts(t *testing.T) {
+	mapping := []configs.IDMap{
+		{
+			ContainerID: 0,
+			HostID:      10000,
+			Size:        1,
+		},
+	}
+
+	testCases := []struct {
+		name   string
+		isErr  bool
+		config *configs.Config
+	}{
+		{
+			name:  "idmap non-bind mount",
+			isErr: true,
+			config: &configs.Config{
+				UIDMappings: mapping,
+				GIDMappings: mapping,
+				Mounts: []*configs.Mount{
+					{
+						Source:      "/dev/sda1",
+						Destination: "/abs/path/",
+						Device:      "ext4",
+						IDMapping: &configs.MountIDMapping{
+							UIDMappings: mapping,
+							GIDMappings: mapping,
+						},
+					},
+				},
+			},
+		},
+		{
+			name:  "idmap option non-bind mount",
+			isErr: true,
+			config: &configs.Config{
+				Mounts: []*configs.Mount{
+					{
+						Source:      "/dev/sda1",
+						Destination: "/abs/path/",
+						Device:      "ext4",
+						IDMapping:   &configs.MountIDMapping{},
+					},
+				},
+			},
+		},
+		{
+			name:  "ridmap option non-bind mount",
+			isErr: true,
+			config: &configs.Config{
+				Mounts: []*configs.Mount{
+					{
+						Source:      "/dev/sda1",
+						Destination: "/abs/path/",
+						Device:      "ext4",
+						IDMapping: &configs.MountIDMapping{
+							Recursive: true,
+						},
+					},
+				},
+			},
+		},
+		{
+			name:  "idmap mount no uid mapping",
+			isErr: true,
+			config: &configs.Config{
+				Mounts: []*configs.Mount{
+					{
+						Source:      "/abs/path/",
+						Destination: "/abs/path/",
+						Flags:       unix.MS_BIND,
+						IDMapping: &configs.MountIDMapping{
+							GIDMappings: mapping,
+						},
+					},
+				},
+			},
+		},
+		{
+			name:  "idmap mount no gid mapping",
+			isErr: true,
+			config: &configs.Config{
+				Mounts: []*configs.Mount{
+					{
+						Source:      "/abs/path/",
+						Destination: "/abs/path/",
+						Flags:       unix.MS_BIND,
+						IDMapping: &configs.MountIDMapping{
+							UIDMappings: mapping,
+						},
+					},
+				},
+			},
+		},
+		{
+			name:  "rootless idmap mount",
+			isErr: true,
+			config: &configs.Config{
+				RootlessEUID: true,
+				UIDMappings:  mapping,
+				GIDMappings:  mapping,
+				Mounts: []*configs.Mount{
+					{
+						Source:      "/abs/path/",
+						Destination: "/abs/path/",
+						Flags:       unix.MS_BIND,
+						IDMapping: &configs.MountIDMapping{
+							UIDMappings: mapping,
+							GIDMappings: mapping,
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "idmap mounts without abs source path",
+			config: &configs.Config{
+				UIDMappings: mapping,
+				GIDMappings: mapping,
+				Mounts: []*configs.Mount{
+					{
+						Source:      "./rel/path/",
+						Destination: "/abs/path/",
+						Flags:       unix.MS_BIND,
+						IDMapping: &configs.MountIDMapping{
+							UIDMappings: mapping,
+							GIDMappings: mapping,
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "idmap mounts without abs dest path",
+			config: &configs.Config{
+				UIDMappings: mapping,
+				GIDMappings: mapping,
+				Mounts: []*configs.Mount{
+					{
+						Source:      "/abs/path/",
+						Destination: "./rel/path/",
+						Flags:       unix.MS_BIND,
+						IDMapping: &configs.MountIDMapping{
+							UIDMappings: mapping,
+							GIDMappings: mapping,
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "simple idmap mount",
+			config: &configs.Config{
+				UIDMappings: mapping,
+				GIDMappings: mapping,
+				Mounts: []*configs.Mount{
+					{
+						Source:      "/another-abs/path/",
+						Destination: "/abs/path/",
+						Flags:       unix.MS_BIND,
+						IDMapping: &configs.MountIDMapping{
+							UIDMappings: mapping,
+							GIDMappings: mapping,
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "idmap mount with more flags",
+			config: &configs.Config{
+				UIDMappings: mapping,
+				GIDMappings: mapping,
+				Mounts: []*configs.Mount{
+					{
+						Source:      "/another-abs/path/",
+						Destination: "/abs/path/",
+						Flags:       unix.MS_BIND | unix.MS_RDONLY,
+						IDMapping: &configs.MountIDMapping{
+							UIDMappings: mapping,
+							GIDMappings: mapping,
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "idmap mount without userns mappings",
+			config: &configs.Config{
+				Mounts: []*configs.Mount{
+					{
+						Source:      "/abs/path/",
+						Destination: "/abs/path/",
+						Flags:       unix.MS_BIND,
+						IDMapping: &configs.MountIDMapping{
+							UIDMappings: mapping,
+							GIDMappings: mapping,
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "idmap mounts with different userns and mount mappings",
+			config: &configs.Config{
+				UIDMappings: mapping,
+				GIDMappings: mapping,
+				Mounts: []*configs.Mount{
+					{
+						Source:      "/abs/path/",
+						Destination: "/abs/path/",
+						Flags:       unix.MS_BIND,
+						IDMapping: &configs.MountIDMapping{
+							UIDMappings: []configs.IDMap{
+								{
+									ContainerID: 10,
+									HostID:      10,
+									Size:        1,
+								},
+							},
+							GIDMappings: mapping,
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "idmap mounts with different userns and mount mappings",
+			config: &configs.Config{
+				UIDMappings: mapping,
+				GIDMappings: mapping,
+				Mounts: []*configs.Mount{
+					{
+						Source:      "/abs/path/",
+						Destination: "/abs/path/",
+						Flags:       unix.MS_BIND,
+						IDMapping: &configs.MountIDMapping{
+							UIDMappings: mapping,
+							GIDMappings: []configs.IDMap{
+								{
+									ContainerID: 10,
+									HostID:      10,
+									Size:        1,
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			name:  "mount with 'idmap' option but no mappings",
+			isErr: true,
+			config: &configs.Config{
+				Mounts: []*configs.Mount{
+					{
+						Source:      "/abs/path/",
+						Destination: "/abs/path/",
+						Flags:       unix.MS_BIND,
+						IDMapping:   &configs.MountIDMapping{},
+					},
+				},
+			},
+		},
+		{
+			name:  "mount with 'ridmap' option but no mappings",
+			isErr: true,
+			config: &configs.Config{
+				Mounts: []*configs.Mount{
+					{
+						Source:      "/abs/path/",
+						Destination: "/abs/path/",
+						Flags:       unix.MS_BIND,
+						IDMapping: &configs.MountIDMapping{
+							Recursive: true,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			config := tc.config
+			config.Rootfs = "/var"
+
+			err := mountsStrict(config)
+			if tc.isErr && err == nil {
+				t.Error("expected error, got nil")
+			}
+
+			if !tc.isErr && err != nil {
+				t.Error(err)
+			}
+		})
+	}
+}
+
+func TestValidateScheduler(t *testing.T) {
+	testCases := []struct {
+		isErr     bool
+		policy    string
+		niceValue int32
+		priority  int32
+		runtime   uint64
+		deadline  uint64
+		period    uint64
+	}{
+		{isErr: true, niceValue: 0},
+		{isErr: false, policy: "SCHED_OTHER", niceValue: 19},
+		{isErr: false, policy: "SCHED_OTHER", niceValue: -20},
+		{isErr: true, policy: "SCHED_OTHER", niceValue: 20},
+		{isErr: true, policy: "SCHED_OTHER", niceValue: -21},
+		{isErr: true, policy: "SCHED_OTHER", priority: 100},
+		{isErr: false, policy: "SCHED_FIFO", priority: 100},
+		{isErr: true, policy: "SCHED_FIFO", runtime: 20},
+		{isErr: true, policy: "SCHED_BATCH", deadline: 30},
+		{isErr: true, policy: "SCHED_IDLE", period: 40},
+		{isErr: true, policy: "SCHED_DEADLINE", priority: 100},
+		{isErr: false, policy: "SCHED_DEADLINE", runtime: 200},
+		{isErr: false, policy: "SCHED_DEADLINE", deadline: 300},
+		{isErr: false, policy: "SCHED_DEADLINE", period: 400},
+		{isErr: true, policy: "SCHED_OTHER", niceValue: 20},
+		{isErr: true, policy: "SCHED_OTHER", niceValue: -21},
+		{isErr: false, policy: "SCHED_FIFO", priority: 100, niceValue: 100},
+	}
+
+	for _, tc := range testCases {
+		scheduler := configs.Scheduler{
+			Policy:   specs.LinuxSchedulerPolicy(tc.policy),
+			Nice:     tc.niceValue,
+			Priority: tc.priority,
+			Runtime:  tc.runtime,
+			Deadline: tc.deadline,
+			Period:   tc.period,
+		}
+		config := &configs.Config{
+			Rootfs:    "/var",
+			Scheduler: &scheduler,
+		}
+
+		err := Validate(config)
+		if tc.isErr && err == nil {
+			t.Errorf("scheduler: %d, expected error, got nil", tc.niceValue)
+		}
+		if !tc.isErr && err != nil {
+			t.Errorf("scheduler: %d, expected nil, got error %v", tc.niceValue, err)
+		}
+	}
+}
+
+func TestValidateIOPriority(t *testing.T) {
+	testCases := []struct {
+		isErr    bool
+		priority int
+	}{
+		{isErr: false, priority: 0},
+		{isErr: false, priority: 7},
+		{isErr: true, priority: -1},
+	}
+
+	for _, tc := range testCases {
+		ioPriroty := configs.IOPriority{
+			Priority: tc.priority,
+		}
+		config := &configs.Config{
+			Rootfs:     "/var",
+			IOPriority: &ioPriroty,
+		}
+
+		err := Validate(config)
+		if tc.isErr && err == nil {
+			t.Errorf("iopriority: %d, expected error, got nil", tc.priority)
+		}
+		if !tc.isErr && err != nil {
+			t.Errorf("iopriority: %d, expected nil, got error %v", tc.priority, err)
 		}
 	}
 }
