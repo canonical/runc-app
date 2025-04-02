@@ -1,0 +1,30 @@
+Description: Set go minimum version to 1.21
+ Starting in go 1.21, the "toolchain $VERSION" line in the go.mod file mandates
+ that a version greater or equal the specified one is used. When the local go
+ version does not meet that requirement, the go tooling tries to download a new
+ version of the toolchain to meet that requirement.  As per the bug linked in
+ the comment above the snippet pinning the toolchain to 1.22.4, we see that the
+ specified point release is fixing a issue that only occours with go >= 1.22
+ and < 1.22.4 and glibc 1.31. Since this is not the case in focal (we are using
+ go 1.21 due to this exact bug), let's remove the constraint.
+ See https://go.dev/doc/toolchain for further reference.
+Author: Athos Ribeiro <athos.ribeiro@canonical.com>
+Forwarded: not-needed
+Last-Update: 2025-04-02
+---
+This patch header follows DEP-3: http://dep.debian.net/deps/dep3/
+--- a/go.mod
++++ b/go.mod
+@@ -1,11 +1,6 @@
+ module github.com/opencontainers/runc
+ 
+-go 1.22
+-
+-// Suggest toolchain 1.22.4 due to a fix in golang for libcontainer/nsenter/.
+-// For more info, see: #4233
+-// Note that toolchain does not impose a requirement on other modules using runc.
+-toolchain go1.22.4
++go 1.21
+ 
+ require (
+ 	github.com/checkpoint-restore/go-criu/v6 v6.3.0

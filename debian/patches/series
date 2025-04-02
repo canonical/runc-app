@@ -5,3 +5,4 @@
 0006-skip-test-paths_test.go.patch
 0007-skip-test-manager_test.go.patch
 0009-skip-test-file_test.go.patch
+toolchain.patch
