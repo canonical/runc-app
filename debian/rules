@@ -38,3 +38,6 @@ override_dh_auto_install:
 	$(RM) -vrf debian/runc/usr/share/gocode
 	# Do not ship example/test utilities (LP: #2076981)
 	$(foreach bin, recvtty sd-helper seccompagent, $(RM) -v debian/runc/usr/bin/$(bin))
+
+override_dh_dwz:
+	# do not call dh_dwz to avoid "dwz: Too few files for multifile optimization"
