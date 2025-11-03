@@ -1,3 +1,24 @@
+runc-app (1.3.3-0ubuntu1~25.10.2) questing-security; urgency=medium
+
+  * d/patches: Bug fix when starting containers with mounts that contain "..":
+    - d/p/v1.3-0025-openat2-improve-resilience-on-busy-systems.patch:
+      openat2: improve resilience on busy systems
+
+ -- Nick Galanis <nick.galanis@canonical.com>  Mon, 03 Nov 2025 16:01:20 +0100
+
+runc-app (1.3.3-0ubuntu1~25.10.1)  questing-security; urgency=medium
+
+  * New upstream release.
+  * SECURITY UPDATE: Escaping a container via masked path abuse 
+    - CVE-2025-31133
+  * SECURITY UPDATE: Escaping a container due to wrong bind-mounts
+    - CVE-2025-52565
+  * SECURITY UPDATE: Escaping a container and denial of service
+    due to arbitrary writes.
+    - CVE-2025-52881
+
+ -- Nick Galanis <nick.galanis@canonical.com>  Thu, 30 Oct 2025 11:49:02 +0000
+
 runc-app (1.3.0-0ubuntu2) questing; urgency=medium
 
   * d/control: adjust for new runc-stable package in the archive

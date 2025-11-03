@@ -7,11 +7,11 @@ By default, privileged lxc container doesn't have /dev/kmsg
  tests/integration/dev.bats | 4 ++++
  1 file changed, 4 insertions(+)
 
-diff --git a/tests/integration/dev.bats b/tests/integration/dev.bats
-index 2433157..e7c91c7 100644
---- a/tests/integration/dev.bats
-+++ b/tests/integration/dev.bats
-@@ -73,6 +73,10 @@ function teardown() {
+Index: runc-app-1.3.3/tests/integration/dev.bats
+===================================================================
+--- runc-app-1.3.3.orig/tests/integration/dev.bats
++++ runc-app-1.3.3/tests/integration/dev.bats
+@@ -72,6 +72,10 @@ function teardown() {
  @test "runc run [device cgroup allow rw char device]" {
  	requires root
  
