@@ -1,2 +1,3 @@
 0002-skip-privileged-test-factory_linux_test.go.patch
 0005-skip-integration-when-no-dev-kmsg.patch
+improve-resilience-on-busy-system.patch
