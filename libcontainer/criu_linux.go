@@ -523,34 +523,9 @@ func (c *Container) restoreNetwork(req *criurpc.CriuReq, criuOpts *CriuOpts) {
 	}
 }
 
-// makeCriuRestoreMountpoints makes the actual mountpoints for the
-// restore using CRIU. This function is inspired from the code in
-// rootfs_linux.go.
-func (c *Container) makeCriuRestoreMountpoints(m *configs.Mount) error {
-	if m.Device == "cgroup" {
-		// No mount point(s) need to be created:
-		//
-		// * for v1, mount points are saved by CRIU because
-		//   /sys/fs/cgroup is a tmpfs mount
-		//
-		// * for v2, /sys/fs/cgroup is a real mount, but
-		//   the mountpoint appears as soon as /sys is mounted
-		return nil
-	}
-	// TODO: pass srcFD? Not sure if criu is impacted by issue #2484.
-	me := mountEntry{Mount: m}
-	// For all other filesystems, just make the target.
-	if _, err := createMountpoint(c.config.Rootfs, me); err != nil {
-		return fmt.Errorf("create criu restore mountpoint for %s mount: %w", me.Destination, err)
-	}
-	return nil
-}
-
-// isPathInPrefixList is a small function for CRIU restore to make sure
-// mountpoints, which are on a tmpfs, are not created in the roofs.
-func isPathInPrefixList(path string, prefix []string) bool {
-	for _, p := range prefix {
-		if strings.HasPrefix(path, p+"/") {
+func isOnTmpfs(path string, mounts []*configs.Mount) bool {
+	for _, m := range mounts {
+		if m.Device == "tmpfs" && strings.HasPrefix(path, m.Destination+"/") {
 			return true
 		}
 	}
@@ -564,17 +539,6 @@ func isPathInPrefixList(path string, prefix []string) bool {
 // This function also creates missing mountpoints as long as they
 // are not on top of a tmpfs, as CRIU will restore tmpfs content anyway.
 func (c *Container) prepareCriuRestoreMounts(mounts []*configs.Mount) error {
-	// First get a list of a all tmpfs mounts
-	tmpfs := []string{}
-	for _, m := range mounts {
-		switch m.Device {
-		case "tmpfs":
-			tmpfs = append(tmpfs, m.Destination)
-		}
-	}
-	// Now go through all mounts and create the mountpoints
-	// if the mountpoints are not on a tmpfs, as CRIU will
-	// restore the complete tmpfs content from its checkpoint.
 	umounts := []string{}
 	defer func() {
 		for _, u := range umounts {
@@ -590,28 +554,51 @@ func (c *Container) prepareCriuRestoreMounts(mounts []*configs.Mount) error {
 			})
 		}
 	}()
+	// Now go through all mounts and create the required mountpoints.
 	for _, m := range mounts {
-		if !isPathInPrefixList(m.Destination, tmpfs) {
-			if err := c.makeCriuRestoreMountpoints(m); err != nil {
+		// No cgroup mount point(s) need to be created:
+		// * for v1, mount points are saved by CRIU because
+		//   /sys/fs/cgroup is a tmpfs mount;
+		// * for v2, /sys/fs/cgroup is a real mount, but
+		//   the mountpoint appears as soon as /sys is mounted.
+		if m.Device == "cgroup" {
+			continue
+		}
+		// If the mountpoint is on a tmpfs, skip it as CRIU will
+		// restore the complete tmpfs content from its checkpoint.
+		if isOnTmpfs(m.Destination, mounts) {
+			continue
+		}
+		me := mountEntry{Mount: m}
+		if err := me.createOpenMountpoint(c.config.Rootfs); err != nil {
+			return fmt.Errorf("create criu restore mountpoint for %s mount: %w", me.Destination, err)
+		}
+		if me.dstFile != nil {
+			defer me.dstFile.Close()
+		}
+		// If the mount point is a bind mount, we need to mount
+		// it now so that runc can create the necessary mount
+		// points for mounts in bind mounts.
+		// This also happens during initial container creation.
+		// Without this CRIU restore will fail
+		// See: https://github.com/opencontainers/runc/issues/2748
+		// It is also not necessary to order the mount points
+		// because during initial container creation mounts are
+		// set up in the order they are configured.
+		if m.Device == "bind" {
+			if err := utils.WithProcfdFile(me.dstFile, func(dstFd string) error {
+				return mountViaFds(m.Source, nil, m.Destination, dstFd, "", unix.MS_BIND|unix.MS_REC, "")
+			}); err != nil {
 				return err
 			}
-			// If the mount point is a bind mount, we need to mount
-			// it now so that runc can create the necessary mount
-			// points for mounts in bind mounts.
-			// This also happens during initial container creation.
-			// Without this CRIU restore will fail
-			// See: https://github.com/opencontainers/runc/issues/2748
-			// It is also not necessary to order the mount points
-			// because during initial container creation mounts are
-			// set up in the order they are configured.
-			if m.Device == "bind" {
-				if err := utils.WithProcfd(c.config.Rootfs, m.Destination, func(dstFd string) error {
-					return mountViaFds(m.Source, nil, m.Destination, dstFd, "", unix.MS_BIND|unix.MS_REC, "")
-				}); err != nil {
-					return err
-				}
-				umounts = append(umounts, m.Destination)
-			}
+			umounts = append(umounts, m.Destination)
+		}
+		if me.dstFile != nil {
+			// As this is being done in a loop, the defer earlier will be
+			// delayed until all mountpoints are handled -- for a config with
+			// many mountpoints this could result in a lot of open files. So we
+			// opportunistically close the file as well as deferring it.
+			_ = me.dstFile.Close()
 		}
 	}
 	return nil
@@ -1101,7 +1088,7 @@ func (c *Container) criuNotifications(resp *criurpc.CriuResp, process *Process, 
 	logrus.Debugf("notify: %s\n", script)
 	switch script {
 	case "post-dump":
-		f, err := os.Create(filepath.Join(c.stateDir, "checkpoint"))
+		f, err := os.Create(filepath.Join(c.stateDir, "checkpoint")) //nolint:forbidigo // this is a host-side operation in a runc-controlled directory
 		if err != nil {
 			return err
 		}
