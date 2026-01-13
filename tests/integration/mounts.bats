@@ -127,6 +127,42 @@ function test_mount_order() {
 	[[ "$output" == *"a/x"* ]] # the final "file" was from a/x.
 }
 
+# This needs to be placed at the top of the bats file to work around
+# a shellcheck bug. See <https://github.com/koalaman/shellcheck/issues/2873>.
+test_mount_target() {
+	src="$1"
+	dst="$2"
+	real_dst="${3:-$dst}"
+
+	echo "== $src -> $dst (=> $real_dst) =="
+
+	old_config="$(mktemp ./config.json.bak.XXXXXX)"
+	cp ./config.json "$old_config"
+
+	update_config '.mounts += [{
+		source: "'"$src"'",
+		destination: "'"$dst"'",
+		options: ["bind"]
+	}]'
+
+	# Make sure the target path is at the right spot and is actually a
+	# bind-mount of the correct inode.
+	update_config '.process.args = ["stat", "-c", "%n %d:%i", "--", "'"$real_dst"'"]'
+	runc run test_busybox
+	[ "$status" -eq 0 ]
+	[[ "$output" == "$real_dst $(stat -c "%d:%i" -- "$src")" ]]
+
+	# Make sure there is a mount entry for the target path.
+	# shellcheck disable=SC2016
+	update_config '.process.args = ["awk", "-F", "PATH='"$real_dst"'", "$2 == PATH", "/proc/self/mounts"]'
+	runc run test_busybox
+	[ "$status" -eq 0 ]
+	[[ "$output" == *"$real_dst"* ]]
+
+	# Switch back the old config so this function can be called multiple times.
+	mv "$old_config" "./config.json"
+}
+
 # https://github.com/opencontainers/runc/issues/3991
 @test "runc run [tmpcopyup]" {
 	mkdir -p rootfs/dir1/dir2
@@ -234,6 +270,87 @@ function test_mount_order() {
 	[[ "$(stat -c %a rootfs/setgid/a/b/c)" == 2755 ]]
 }
 
+# https://github.com/opencontainers/runc/issues/4971
+@test "runc run [tmpfs mount mode= inherit]" {
+	mkdir rootfs/tmpfs
+	chmod "=0710" rootfs/tmpfs
+
+	update_config '.mounts += [{
+		type: "tmpfs",
+		source: "tmpfs",
+		destination: "/tmpfs",
+		options: ["rw", "nodev", "nosuid"]
+	}]'
+	update_config '.process.args = ["stat", "-c", "%a", "/tmpfs"]'
+
+	runc run test_busybox
+	[ "$status" -eq 0 ]
+	[[ "$output" == "710" ]]
+
+	update_config '.process.args = ["cat", "/proc/self/mounts"]'
+	runc run test_busybox
+	[ "$status" -eq 0 ]
+	grep -Ex "tmpfs /tmpfs tmpfs [^ ]*\bmode=710\b[^ ]* .*" <<<"$output"
+}
+
+# https://github.com/opencontainers/runc/issues/4971
+@test "runc run [tmpfs mount explicit mode=]" {
+	mkdir rootfs/tmpfs
+	chmod "=0710" rootfs/tmpfs
+
+	update_config '.mounts += [{
+		type: "tmpfs",
+		source: "tmpfs",
+		destination: "/tmpfs",
+		options: ["rw", "nodev", "nosuid", "mode=1500"]
+	}]'
+	update_config '.process.args = ["stat", "-c", "%a", "/tmpfs"]'
+
+	# Explicitly setting mode= overrides whatever mode we would've inherited.
+	runc run test_busybox
+	[ "$status" -eq 0 ]
+	[[ "$output" == "1500" ]]
+
+	update_config '.process.args = ["cat", "/proc/self/mounts"]'
+	runc run test_busybox
+	[ "$status" -eq 0 ]
+	grep -Ex "tmpfs /tmpfs tmpfs [^ ]*\bmode=1500\b[^ ]* .*" <<<"$output"
+
+	# Verify that the actual directory was not chmod-ed.
+	[[ "$(stat -c %a rootfs/tmpfs)" == 710 ]]
+}
+
+# https://github.com/opencontainers/runc/issues/4971
+@test "runc run [tmpfs mount mode=1777 default]" {
+	update_config '.mounts += [{
+		type: "tmpfs",
+		source: "tmpfs",
+		destination: "/non-existent/foo/bar/baz",
+		options: ["rw", "nodev", "nosuid"]
+	}]'
+	update_config '.process.args = ["stat", "-c", "%a", "/non-existent/foo/bar/baz"]'
+
+	rm -rf rootfs/non-existent
+	runc run test_busybox
+	[ "$status" -eq 0 ]
+	[[ "$output" == "1777" ]]
+
+	update_config '.process.args = ["cat", "/proc/self/mounts"]'
+
+	rm -rf rootfs/non-existent
+	runc run test_busybox
+	[ "$status" -eq 0 ]
+	# We don't explicitly set a mode= in this case, it is just the tmpfs default.
+	grep -Ex "tmpfs /non-existent/foo/bar/baz tmpfs .*" <<<"$output"
+	run ! grep -Ex "tmpfs /non-existent/foo/bar/baz tmpfs [^ ]*\bmode=[0-7]+\b[^ ]* .*" <<<"$output"
+
+	# Verify that the actual modes are *not* 1777.
+	[[ "$(stat -c %a rootfs/non-existent)" == 755 ]]
+	[[ "$(stat -c %a rootfs/non-existent/foo)" == 755 ]]
+	[[ "$(stat -c %a rootfs/non-existent/foo/bar)" == 755 ]]
+	[[ "$(stat -c %a rootfs/non-existent/foo/bar/baz)" == 755 ]]
+}
+
 @test "runc run [ro /sys/fs/cgroup mounts]" {
 	# Without cgroup namespace.
 	update_config '.linux.namespaces -= [{"type": "cgroup"}]'
@@ -261,4 +378,26 @@ function test_mount_order() {
 
 @test "runc run [mount order, container idmap source] (userns)" {
 	test_mount_order userns,idmap
+}
+
+@test "runc run [bind mount through a dangling symlink component]" {
+	rm -rf rootfs/etc/hosts
+	ln -s /tmp/foo/bar rootfs/jump
+	ln -s /jump/baz/hosts rootfs/etc/hosts
+
+	rm -rf rootfs/tmp/foo
+	test_mount_target ./config.json /etc/hosts /tmp/foo/bar/baz/hosts
+}
+
+@test "runc run [bind mount through a trailing dangling symlink]" {
+	rm -rf rootfs/etc/hosts
+	ln -s /tmp/hosts rootfs/etc/hosts
+
+	# File.
+	rm -rf rootfs/tmp/hosts
+	test_mount_target ./config.json /etc/hosts /tmp/hosts
+
+	# Directory.
+	rm -rf rootfs/tmp/hosts
+	test_mount_target . /etc/hosts /tmp/hosts
 }

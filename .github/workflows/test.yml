@@ -25,7 +25,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-24.04, ubuntu-24.04-arm]
-        go-version: [1.23.x, 1.24.x]
+        go-version: [1.24.x, 1.25.x]
         rootless: ["rootless", ""]
         race: ["-race", ""]
         criu: ["", "criu-dev"]
@@ -33,18 +33,18 @@ jobs:
           # Disable most of criu-dev jobs, as they are expensive
           # (need to compile criu) and don't add much value/coverage.
           - criu: criu-dev
-            go-version: 1.23.x
+            go-version: 1.24.x
           - criu: criu-dev
             rootless: rootless
           # Do race detection only on latest Go.
           - race: -race
-            go-version: 1.23.x
+            go-version: 1.24.x
 
     runs-on: ${{ matrix.os }}
 
     steps:
     - name: checkout
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Show host info
       run: |
@@ -90,12 +90,14 @@ jobs:
         sudo apt -qy install \
           libcap-dev libnet1-dev libnl-3-dev uuid-dev \
           libprotobuf-c-dev libprotobuf-dev protobuf-c-compiler protobuf-compiler
-        git clone https://github.com/checkpoint-restore/criu.git ~/criu
-        (cd ~/criu && git checkout ${{ matrix.criu }} && sudo make install-criu)
+        git clone --depth 1 --branch ${{ matrix.criu }} --single-branch \
+          https://github.com/checkpoint-restore/criu.git ~/criu
+        (cd ~/criu && sudo make -j $(nproc) install-criu)
         rm -rf ~/criu
+        criu --version
 
     - name: install go ${{ matrix.go-version }}
-      uses: actions/setup-go@v5
+      uses: actions/setup-go@v6
       with:
         go-version: ${{ matrix.go-version }}
         check-latest: true
@@ -104,9 +106,9 @@ jobs:
       run: sudo -E PATH="$PATH" make EXTRA_FLAGS="${{ matrix.race }}" all
 
     - name: Setup Bats and bats libs
-      uses: bats-core/bats-action@3.0.0
+      uses: bats-core/bats-action@3.0.1
       with:
-        bats-version: 1.9.0
+        bats-version: 1.11.1 # Known as BATS_VERSION in other places.
         support-install: false
         assert-install: false
         detik-install: false
@@ -153,19 +155,19 @@ jobs:
     steps:
 
     - name: checkout
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: install deps
       run: |
         sudo dpkg --add-architecture i386
-        # add criu repo
-        sudo add-apt-repository -y ppa:criu/ppa
+        # Add criu repo. The web server returns gateway timeout, thus the retry.
+        sudo add-apt-repository -y ppa:criu/ppa || sudo add-apt-repository -y ppa:criu/ppa
         # apt-add-repository runs apt update so we don't have to.
 
         sudo apt -qy install libseccomp-dev libseccomp-dev:i386 gcc-multilib libgcc-s1:i386 criu
 
     - name: install go
-      uses: actions/setup-go@v5
+      uses: actions/setup-go@v6
       with:
         go-version: 1.x # Latest stable
         check-latest: true
@@ -177,7 +179,7 @@ jobs:
     timeout-minutes: 30
     runs-on: ubuntu-24.04
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
 
     - uses: lima-vm/lima-actions/setup@v1
       id: lima-actions-setup
