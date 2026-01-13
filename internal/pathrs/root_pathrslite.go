@@ -19,24 +19,27 @@
 package pathrs
 
 import (
-	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/cyphar/filepath-securejoin/pathrs-lite"
 	"golang.org/x/sys/unix"
+
+	"github.com/opencontainers/runc/internal/linux"
 )
 
 // OpenInRoot opens the given path inside the root with the provided flags. It
 // is effectively shorthand for [securejoin.OpenInRoot] followed by
 // [securejoin.Reopen].
 func OpenInRoot(root, subpath string, flags int) (*os.File, error) {
-	handle, err := pathrs.OpenInRoot(root, subpath)
+	handle, err := retryEAGAIN(func() (*os.File, error) {
+		return pathrs.OpenInRoot(root, subpath)
+	})
 	if err != nil {
 		return nil, err
 	}
 	defer handle.Close()
-	return pathrs.Reopen(handle, flags)
+
+	return Reopen(handle, flags)
 }
 
 // CreateInRoot creates a new file inside a root (as well as any missing parent
@@ -45,12 +48,7 @@ func OpenInRoot(root, subpath string, flags int) (*os.File, error) {
 // include it in the passed flags. The fileMode argument uses unix.* mode bits,
 // *not* os.FileMode.
 func CreateInRoot(root, subpath string, flags int, fileMode uint32) (*os.File, error) {
-	dir, filename := filepath.Split(subpath)
-	if filepath.Join("/", filename) == "/" {
-		return nil, fmt.Errorf("create in root subpath %q has bad trailing component %q", subpath, filename)
-	}
-
-	dirFd, err := MkdirAllInRootOpen(root, dir, 0o755)
+	dirFd, filename, err := MkdirAllParentInRoot(root, subpath, 0o755)
 	if err != nil {
 		return nil, err
 	}
@@ -61,7 +59,7 @@ func CreateInRoot(root, subpath string, flags int, fileMode uint32) (*os.File, e
 	// trailing symlinks, so this is safe to do. libpathrs's Root::create_file
 	// works the same way.
 	flags |= unix.O_CREAT | unix.O_NOFOLLOW
-	fd, err := unix.Openat(int(dirFd.Fd()), filename, flags, fileMode)
+	fd, err := linux.Openat(int(dirFd.Fd()), filename, flags, fileMode)
 	if err != nil {
 		return nil, err
 	}

@@ -40,7 +40,7 @@ func TestExecIn(t *testing.T) {
 	}
 	err = container.Run(process)
 	_ = stdinR.Close()
-	defer stdinW.Close() //nolint: errcheck
+	defer stdinW.Close()
 	ok(t, err)
 
 	buffers := newStdBuffers()
@@ -69,10 +69,7 @@ func TestExecIn(t *testing.T) {
 }
 
 func TestExecInUsernsRlimit(t *testing.T) {
-	if _, err := os.Stat("/proc/self/ns/user"); os.IsNotExist(err) {
-		t.Skip("Test requires userns.")
-	}
-
+	needUserNS(t)
 	testExecInRlimit(t, true)
 }
 
@@ -101,7 +98,7 @@ func testExecInRlimit(t *testing.T, userns bool) {
 	}
 	err = container.Run(process)
 	_ = stdinR.Close()
-	defer stdinW.Close() //nolint: errcheck
+	defer stdinW.Close()
 	ok(t, err)
 
 	buffers := newStdBuffers()
@@ -152,7 +149,7 @@ func TestExecInAdditionalGroups(t *testing.T) {
 	}
 	err = container.Run(process)
 	_ = stdinR.Close()
-	defer stdinW.Close() //nolint: errcheck
+	defer stdinW.Close()
 	ok(t, err)
 
 	var stdout bytes.Buffer
@@ -212,7 +209,7 @@ func TestExecInError(t *testing.T) {
 	}()
 	ok(t, err)
 
-	for i := 0; i < 42; i++ {
+	for range 42 {
 		unexistent := &libcontainer.Process{
 			Cwd:  "/",
 			Args: []string{"unexistent"},
@@ -266,7 +263,7 @@ func TestExecInTTY(t *testing.T) {
 
 	// Repeat to increase chances to catch a race; see
 	// https://github.com/opencontainers/runc/issues/2425.
-	for i := 0; i < 300; i++ {
+	for range 300 {
 		var stdout bytes.Buffer
 
 		parent, child, err := utils.NewSockPair("console")
@@ -341,7 +338,7 @@ func TestExecInEnvironment(t *testing.T) {
 	}
 	err = container.Run(process)
 	_ = stdinR.Close()
-	defer stdinW.Close() //nolint: errcheck
+	defer stdinW.Close()
 	ok(t, err)
 
 	execEnv := []string{
@@ -411,7 +408,7 @@ func TestExecinPassExtraFiles(t *testing.T) {
 	}
 	err = container.Run(process)
 	_ = stdinR.Close()
-	defer stdinW.Close() //nolint: errcheck
+	defer stdinW.Close()
 	ok(t, err)
 
 	var stdout bytes.Buffer
@@ -476,7 +473,7 @@ func TestExecInOomScoreAdj(t *testing.T) {
 	}
 	err = container.Run(process)
 	_ = stdinR.Close()
-	defer stdinW.Close() //nolint: errcheck
+	defer stdinW.Close()
 	ok(t, err)
 
 	buffers := newStdBuffers()
@@ -502,9 +499,7 @@ func TestExecInOomScoreAdj(t *testing.T) {
 }
 
 func TestExecInUserns(t *testing.T) {
-	if _, err := os.Stat("/proc/self/ns/user"); os.IsNotExist(err) {
-		t.Skip("Test requires userns.")
-	}
+	needUserNS(t)
 	if testing.Short() {
 		return
 	}
@@ -526,7 +521,7 @@ func TestExecInUserns(t *testing.T) {
 	}
 	err = container.Run(process)
 	_ = stdinR.Close()
-	defer stdinW.Close() //nolint: errcheck
+	defer stdinW.Close()
 	ok(t, err)
 
 	initPID, err := process.Pid()

@@ -217,7 +217,7 @@ function teardown() {
 	# Also create a network namespace that *is not owned* by the above userns.
 	# NOTE: Having no permissions in a namespaces makes it necessary to modify
 	# the config so that we don't get mount errors (for reference: no netns
-	# permissions == no sysfs mounts, no pidns permissoins == no procfs mounts,
+	# permissions == no sysfs mounts, no pidns permissions == no procfs mounts,
 	# no utsns permissions == no sethostname(2), no ipc permissions == no
 	# mqueue mounts, etc).
 	netns_path="$(mktemp "$BATS_RUN_TMPDIR/netns.XXXXXX")"
@@ -245,4 +245,40 @@ function teardown() {
 	runc exec ctr readlink /proc/self/ns/net
 	[ "$status" -eq 0 ]
 	[[ "$output" == "$netns_id" ]]
+}
+
+@test "userns with network interface" {
+	requires root
+
+	# Create a dummy interface to move to the container.
+	ip link add dummy0 type dummy
+
+	update_config ' .linux.netDevices |= {"dummy0": {} }
+		| .process.args |= ["ip", "address", "show", "dev", "dummy0"]'
+
+	runc run test_busybox
+	[ "$status" -eq 0 ]
+
+	# The interface is virtual and should not exist because
+	# is deleted during the namespace cleanup.
+	run ip link del dummy0
+	[ "$status" -ne 0 ]
+}
+
+@test "userns with network interface renamed" {
+	requires root
+
+	# Create a dummy interface to move to the container.
+	ip link add dummy0 type dummy
+
+	update_config ' .linux.netDevices |= { "dummy0": { "name" : "ctr_dummy0" } }
+		| .process.args |= ["ip", "address", "show", "dev", "ctr_dummy0"]'
+
+	runc run test_busybox
+	[ "$status" -eq 0 ]
+
+	# The interface is virtual and should not exist because
+	# is deleted during the namespace cleanup.
+	run ip link del dummy0
+	[ "$status" -ne 0 ]
 }

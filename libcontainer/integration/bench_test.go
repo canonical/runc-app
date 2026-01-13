@@ -34,8 +34,7 @@ func BenchmarkExecTrue(b *testing.B) {
 	}()
 	ok(b, err)
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		exec := &libcontainer.Process{
 			Cwd:      "/",
 			Args:     []string{"/bin/true"},
@@ -60,7 +59,7 @@ func genBigEnv(count int) []string {
 	}
 
 	envs := make([]string, count)
-	for i := 0; i < count; i++ {
+	for i := range count {
 		key := strings.ToUpper(randStr(10))
 		value := randStr(20)
 		envs[i] = key + "=" + value
@@ -101,8 +100,7 @@ func BenchmarkExecInBigEnv(b *testing.B) {
 		wantOut.WriteString(e + "\n")
 	}
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		buffers := newStdBuffers()
 		exec := &libcontainer.Process{
 			Cwd:    "/",
