@@ -1,3 +1,12 @@
+runc-app (1.5.1-0ubuntu1) stonking; urgency=medium
+
+  * New upstream version 1.5.1
+  * d/control: build with golang 1.26
+  * d/rules: add golang 1.26 to PATH
+  * d/copyright: update copyright data
+
+ -- Athos Ribeiro <athos@ubuntu.com>  Wed, 19 Aug 2026 21:16:49 -0300
+
 runc-app (1.4.0-0ubuntu1) resolute; urgency=medium
 
   * New upstream version 1.4.0
