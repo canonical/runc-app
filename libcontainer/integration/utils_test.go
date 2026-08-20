@@ -1,7 +1,7 @@
 package integration
 
 import (
-	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -54,16 +54,14 @@ func ptrInt(v int) *int {
 
 func newStdBuffers() *stdBuffers {
 	return &stdBuffers{
-		Stdin:  bytes.NewBuffer(nil),
-		Stdout: bytes.NewBuffer(nil),
-		Stderr: bytes.NewBuffer(nil),
+		Stdout: new(strings.Builder),
+		Stderr: new(strings.Builder),
 	}
 }
 
 type stdBuffers struct {
-	Stdin  *bytes.Buffer
-	Stdout *bytes.Buffer
-	Stderr *bytes.Buffer
+	Stdout *strings.Builder
+	Stderr *strings.Builder
 }
 
 func (b *stdBuffers) String() string {
@@ -87,13 +85,12 @@ func ok(t testing.TB, err error) {
 
 func waitProcess(p *libcontainer.Process, t testing.TB) {
 	t.Helper()
-	status, err := p.Wait()
+	_, err := p.Wait()
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if !status.Success() {
-		t.Fatalf("unexpected status: %v", status)
+		if stderr, ok := p.Stderr.(fmt.Stringer); ok {
+			err = fmt.Errorf("%w; stderr:\n%s", err, stderr)
+		}
+		t.Fatalf("command failed: %v", err)
 	}
 }
 
@@ -187,7 +184,6 @@ func runContainer(t testing.TB, config *configs.Config, args ...string) (buffers
 		Cwd:    "/",
 		Args:   args,
 		Env:    standardEnvironment,
-		Stdin:  buffers.Stdin,
 		Stdout: buffers.Stdout,
 		Stderr: buffers.Stderr,
 		Init:   true,
@@ -230,4 +226,11 @@ func runContainerOk(t testing.TB, config *configs.Config, args ...string) *stdBu
 
 func destroyContainer(container *libcontainer.Container) {
 	_ = container.Destroy()
+}
+
+func needUserNS(t testing.TB) {
+	t.Helper()
+	if _, err := os.Stat("/proc/self/ns/user"); errors.Is(err, os.ErrNotExist) {
+		t.Skip("Test requires userns.")
+	}
 }

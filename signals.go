@@ -26,14 +26,17 @@ func newSignalHandler(enableSubreaper bool, notifySocket *notifySocket) chan *si
 		}
 	}
 	handler := make(chan *signalHandler)
+
+	// Ensure that we have a large buffer size so that we do not miss any
+	// signals in case we are not processing them fast enough.
+	s := make(chan os.Signal, signalBufferSize)
+
 	// signal.Notify is actually quite expensive, as it has to configure the
 	// signal mask and add signal handlers for all signals (all ~65 of them).
 	// So, defer this to a background thread while doing the rest of the io/tty
-	// setup.
+	// setup, except for SIGCHLD which is very important (see #5208).
+	signal.Notify(s, unix.SIGCHLD)
 	go func() {
-		// ensure that we have a large buffer size so that we do not miss any
-		// signals in case we are not processing them fast enough.
-		s := make(chan os.Signal, signalBufferSize)
 		// handle all signals for the process.
 		signal.Notify(s)
 		handler <- &signalHandler{
@@ -114,7 +117,7 @@ func (h *signalHandler) forward(process *libcontainer.Process, tty *tty, detach 
 		default:
 			us := s.(unix.Signal)
 			logrus.Debugf("forwarding signal %d (%s) to %d", int(us), unix.SignalName(us), pid1)
-			if err := unix.Kill(pid1, us); err != nil {
+			if err := process.Signal(s); err != nil {
 				logrus.Error(err)
 			}
 		}

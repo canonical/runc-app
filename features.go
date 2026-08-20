@@ -33,7 +33,7 @@ var featuresCommand = cli.Command{
 			OCIVersionMin: "1.0.0",
 			OCIVersionMax: specs.Version,
 			Annotations: map[string]string{
-				runcfeatures.AnnotationRuncVersion:           version,
+				runcfeatures.AnnotationRuncVersion:           context.App.Version,
 				runcfeatures.AnnotationRuncCommit:            gitCommit,
 				runcfeatures.AnnotationRuncCheckpointEnabled: "true",
 			},
@@ -56,12 +56,21 @@ var featuresCommand = cli.Command{
 					Enabled: &t,
 				},
 				IntelRdt: &features.IntelRdt{
-					Enabled: &t,
+					Enabled:    &t,
+					Schemata:   &t,
+					Monitoring: &t,
+				},
+				MemoryPolicy: &features.MemoryPolicy{
+					Modes: specconv.KnownMemoryPolicyModes(),
+					Flags: specconv.KnownMemoryPolicyFlags(),
 				},
 				MountExtensions: &features.MountExtensions{
 					IDMap: &features.IDMap{
 						Enabled: &t,
 					},
+				},
+				NetDevices: &features.NetDevices{
+					Enabled: &t,
 				},
 			},
 			PotentiallyUnsafeConfigAnnotations: []string{
@@ -82,6 +91,10 @@ var featuresCommand = cli.Command{
 			}
 			major, minor, patch := seccomp.Version()
 			feat.Annotations[runcfeatures.AnnotationLibseccompVersion] = fmt.Sprintf("%d.%d.%d", major, minor, patch)
+		}
+
+		if v := pathrsVersionString(); v != "" {
+			feat.Annotations[runcfeatures.AnnotationLibpathrsVersion] = v
 		}
 
 		enc := json.NewEncoder(context.App.Writer)

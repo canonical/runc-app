@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/opencontainers/runc/internal/linux"
 	"github.com/opencontainers/runc/libcontainer"
 	"github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/sirupsen/logrus"
@@ -24,7 +25,7 @@ type notifySocket struct {
 	socketPath string
 }
 
-func newNotifySocket(context *cli.Context, notifySocketHost string, id string) *notifySocket {
+func newNotifySocket(context *cli.Context, notifySocketHost, id string) *notifySocket {
 	if notifySocketHost == "" {
 		return nil
 	}
@@ -127,7 +128,7 @@ func (s *notifySocket) run(pid1 int) error {
 			got := buf[0:r]
 			// systemd-ready sends a single datagram with the state string as payload,
 			// so we don't need to worry about partial messages.
-			for _, line := range bytes.Split(got, []byte{'\n'}) {
+			for line := range bytes.SplitSeq(got, []byte{'\n'}) {
 				if bytes.HasPrefix(got, []byte("READY=")) {
 					fileChan <- line
 					return
@@ -174,14 +175,20 @@ func notifyHost(client *net.UnixConn, ready []byte, pid1 int) error {
 var errUnexpectedRead = errors.New("unexpected read from synchronization pipe")
 
 // sdNotifyBarrier performs synchronization with systemd by means of the sd_notify_barrier protocol.
-func sdNotifyBarrier(client *net.UnixConn) error {
+func sdNotifyBarrier(client *net.UnixConn) (retErr error) {
 	// Create a pipe for communicating with systemd daemon.
 	pipeR, pipeW, err := os.Pipe()
 	if err != nil {
 		return err
 	}
+	defer func() {
+		if retErr != nil {
+			pipeW.Close()
+			pipeR.Close()
+		}
+	}()
 
-	// Get the FD for the unix socket file to be able to do perform syscall.Sendmsg.
+	// Get the FD for the unix socket file to be able to use sendmsg.
 	clientFd, err := client.File()
 	if err != nil {
 		return err
@@ -189,9 +196,9 @@ func sdNotifyBarrier(client *net.UnixConn) error {
 
 	// Send the write end of the pipe along with a BARRIER=1 message.
 	fdRights := unix.UnixRights(int(pipeW.Fd()))
-	err = unix.Sendmsg(int(clientFd.Fd()), []byte("BARRIER=1"), fdRights, nil, 0)
+	err = linux.Sendmsg(int(clientFd.Fd()), []byte("BARRIER=1"), fdRights, nil, 0)
 	if err != nil {
-		return &os.SyscallError{Syscall: "sendmsg", Err: err}
+		return err
 	}
 
 	// Close our copy of pipeW.

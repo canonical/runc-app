@@ -8,9 +8,9 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/opencontainers/runc/libcontainer/utils"
-
 	"github.com/sirupsen/logrus"
+
+	"github.com/opencontainers/runc/internal/cmsg"
 )
 
 type syncType string
@@ -102,7 +102,7 @@ func doWriteSync(pipe *syncSocket, sync syncT) error {
 	}
 	if sync.Flags&syncFlagHasFd != 0 {
 		logrus.Debugf("writing sync file %s", sync)
-		if err := utils.SendFile(pipe.File(), sync.File); err != nil {
+		if err := cmsg.SendFile(pipe.File(), sync.File); err != nil {
 			return fmt.Errorf("sending file after sync %q: %w", sync.Type, err)
 		}
 	}
@@ -113,7 +113,7 @@ func writeSync(pipe *syncSocket, sync syncType) error {
 	return doWriteSync(pipe, syncT{Type: sync})
 }
 
-func writeSyncArg(pipe *syncSocket, sync syncType, arg interface{}) error {
+func writeSyncArg(pipe *syncSocket, sync syncType, arg any) error {
 	argJSON, err := json.Marshal(arg)
 	if err != nil {
 		return fmt.Errorf("writing sync %v: marshal argument failed: %w", sync, err)
@@ -149,7 +149,7 @@ func doReadSync(pipe *syncSocket) (syncT, error) {
 	}
 	if sync.Flags&syncFlagHasFd != 0 {
 		logrus.Debugf("reading sync file %s", sync)
-		file, err := utils.RecvFile(pipe.File())
+		file, err := cmsg.RecvFile(pipe.File())
 		if err != nil {
 			return sync, fmt.Errorf("receiving fd from sync %v failed: %w", sync.Type, err)
 		}

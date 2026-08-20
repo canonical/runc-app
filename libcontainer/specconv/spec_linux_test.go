@@ -1,6 +1,7 @@
 package specconv
 
 import (
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -609,7 +610,7 @@ func TestDupNamespaces(t *testing.T) {
 }
 
 func TestUserNamespaceMappingAndPath(t *testing.T) {
-	if _, err := os.Stat("/proc/self/ns/user"); os.IsNotExist(err) {
+	if _, err := os.Stat("/proc/self/ns/user"); errors.Is(err, os.ErrNotExist) {
 		t.Skip("Test requires userns.")
 	}
 
@@ -643,7 +644,7 @@ func TestUserNamespaceMappingAndPath(t *testing.T) {
 }
 
 func TestNonZeroEUIDCompatibleSpecconvValidate(t *testing.T) {
-	if _, err := os.Stat("/proc/self/ns/user"); os.IsNotExist(err) {
+	if _, err := os.Stat("/proc/self/ns/user"); errors.Is(err, os.ErrNotExist) {
 		t.Skip("Test requires userns.")
 	}
 
@@ -676,7 +677,7 @@ func TestInitSystemdProps(t *testing.T) {
 	type expT struct {
 		isErr bool
 		name  string
-		value interface{}
+		value any
 	}
 
 	testCases := []struct {
@@ -685,8 +686,9 @@ func TestInitSystemdProps(t *testing.T) {
 		exp  expT
 	}{
 		{
-			in:  inT{"org.systemd.property.TimeoutStopUSec", "uint64 123456789"},
-			exp: expT{false, "TimeoutStopUSec", uint64(123456789)},
+			desc: "convert USec to Sec (simple case)",
+			in:   inT{"org.systemd.property.TimeoutStopUSec", "uint64 123456789"},
+			exp:  expT{false, "TimeoutStopUSec", uint64(123456789)},
 		},
 		{
 			desc: "convert USec to Sec (default numeric type)",
@@ -749,8 +751,14 @@ func TestInitSystemdProps(t *testing.T) {
 			exp:  expT{false, "FOOSec", 123},
 		},
 		{
-			in:  inT{"org.systemd.property.CollectMode", "'inactive-or-failed'"},
-			exp: expT{false, "CollectMode", "inactive-or-failed"},
+			desc: "convert USec to Sec (short name)",
+			in:   inT{"org.systemd.property.Sec", "123"},
+			exp:  expT{false, "Sec", 123},
+		},
+		{
+			desc: "CollectMode",
+			in:   inT{"org.systemd.property.CollectMode", "'inactive-or-failed'"},
+			exp:  expT{false, "CollectMode", "inactive-or-failed"},
 		},
 		{
 			desc: "unrelated property",
@@ -777,34 +785,35 @@ func TestInitSystemdProps(t *testing.T) {
 	spec := &specs.Spec{}
 
 	for _, tc := range testCases {
-		tc := tc
-		spec.Annotations = map[string]string{tc.in.name: tc.in.value}
+		t.Run(tc.desc, func(t *testing.T) {
+			spec.Annotations = map[string]string{tc.in.name: tc.in.value}
 
-		outMap, err := initSystemdProps(spec)
-		// t.Logf("input %+v, expected %+v, got err:%v out:%+v", tc.in, tc.exp, err, outMap)
+			outMap, err := initSystemdProps(spec)
+			// t.Logf("input %+v, expected %+v, got err:%v out:%+v", tc.in, tc.exp, err, outMap)
 
-		if tc.exp.isErr != (err != nil) {
-			t.Errorf("input %+v, expecting error: %v, got %v", tc.in, tc.exp.isErr, err)
-		}
-		expLen := 1 // expect a single item
-		if tc.exp.name == "" {
-			expLen = 0 // expect nothing
-		}
-		if len(outMap) != expLen {
-			t.Fatalf("input %+v, expected %d, got %d entries: %v", tc.in, expLen, len(outMap), outMap)
-		}
-		if expLen == 0 {
-			continue
-		}
+			if tc.exp.isErr != (err != nil) {
+				t.Errorf("input %+v, expecting error: %v, got %v", tc.in, tc.exp.isErr, err)
+			}
+			expLen := 1 // expect a single item
+			if tc.exp.name == "" {
+				expLen = 0 // expect nothing
+			}
+			if len(outMap) != expLen {
+				t.Fatalf("input %+v, expected %d, got %d entries: %v", tc.in, expLen, len(outMap), outMap)
+			}
+			if expLen == 0 {
+				return // No more checks.
+			}
 
-		out := outMap[0]
-		if tc.exp.name != out.Name {
-			t.Errorf("input %+v, expecting name: %q, got %q", tc.in, tc.exp.name, out.Name)
-		}
-		expValue := dbus.MakeVariant(tc.exp.value).String()
-		if expValue != out.Value.String() {
-			t.Errorf("input %+v, expecting value: %s, got %s", tc.in, expValue, out.Value)
-		}
+			out := outMap[0]
+			if tc.exp.name != out.Name {
+				t.Errorf("input %+v, expecting name: %q, got %q", tc.in, tc.exp.name, out.Name)
+			}
+			expValue := dbus.MakeVariant(tc.exp.value).String()
+			if expValue != out.Value.String() {
+				t.Errorf("input %+v, expecting value: %s, got %s", tc.in, expValue, out.Value)
+			}
+		})
 	}
 }
 
@@ -834,7 +843,7 @@ func TestCheckPropertyName(t *testing.T) {
 }
 
 func BenchmarkCheckPropertyName(b *testing.B) {
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		for _, s := range []string{"", "xx", "xxx", "someValidName", "A name", "Кир", "მადლობა", "合い言葉"} {
 			_ = checkPropertyName(s)
 		}
@@ -954,5 +963,66 @@ func TestCreateDevices(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("device /dev/ram0 not found in config devices; got %v", conf.Devices)
+	}
+}
+
+func TestCreateNetDevices(t *testing.T) {
+	testCases := []struct {
+		name       string
+		netDevices map[string]specs.LinuxNetDevice
+	}{
+		{
+			name: "no network devices",
+		},
+		{
+			name: "one network devices",
+			netDevices: map[string]specs.LinuxNetDevice{
+				"eth1": {},
+			},
+		},
+		{
+			name: "multiple network devices",
+			netDevices: map[string]specs.LinuxNetDevice{
+				"eth1": {},
+				"eth2": {},
+			},
+		},
+		{
+			name: "multiple network devices and rename",
+			netDevices: map[string]specs.LinuxNetDevice{
+				"eth1": {},
+				"eth2": {
+					Name: "ctr_eth2",
+				},
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			spec := Example()
+			spec.Linux.NetDevices = tc.netDevices
+			opts := &CreateOpts{
+				CgroupName:       "ContainerID",
+				UseSystemdCgroup: false,
+				Spec:             spec,
+			}
+			config, err := CreateLibcontainerConfig(opts)
+			if err != nil {
+				t.Errorf("Couldn't create libcontainer config: %v", err)
+			}
+			if len(config.NetDevices) != len(opts.Spec.Linux.NetDevices) {
+				t.Fatalf("expected %d network devices and got %d", len(config.NetDevices), len(opts.Spec.Linux.NetDevices))
+			}
+			for name, netdev := range config.NetDevices {
+				ctrNetDev, ok := config.NetDevices[name]
+				if !ok {
+					t.Fatalf("network device %s not found in the configuration", name)
+				}
+				if ctrNetDev.Name != netdev.Name {
+					t.Fatalf("expected %s got %s", ctrNetDev.Name, netdev.Name)
+				}
+			}
+		})
 	}
 }

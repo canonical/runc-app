@@ -1,7 +1,6 @@
 package integration
 
 import (
-	"bytes"
 	"math/rand"
 	"os"
 	"strings"
@@ -34,8 +33,7 @@ func BenchmarkExecTrue(b *testing.B) {
 	}()
 	ok(b, err)
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		exec := &libcontainer.Process{
 			Cwd:      "/",
 			Args:     []string{"/bin/true"},
@@ -60,7 +58,7 @@ func genBigEnv(count int) []string {
 	}
 
 	envs := make([]string, count)
-	for i := 0; i < count; i++ {
+	for i := range count {
 		key := strings.ToUpper(randStr(10))
 		value := randStr(20)
 		envs[i] = key + "=" + value
@@ -96,26 +94,24 @@ func BenchmarkExecInBigEnv(b *testing.B) {
 	const numEnv = 5000
 	env := append(standardEnvironment, genBigEnv(numEnv)...)
 	// Construct the expected output.
-	var wantOut bytes.Buffer
+	var wantOut strings.Builder
 	for _, e := range env {
 		wantOut.WriteString(e + "\n")
 	}
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		buffers := newStdBuffers()
 		exec := &libcontainer.Process{
 			Cwd:    "/",
 			Args:   []string{"env"},
 			Env:    env,
-			Stdin:  buffers.Stdin,
 			Stdout: buffers.Stdout,
 			Stderr: buffers.Stderr,
 		}
 		err = container.Run(exec)
 		ok(b, err)
 		waitProcess(exec, b)
-		if !bytes.Equal(buffers.Stdout.Bytes(), wantOut.Bytes()) {
+		if buffers.Stdout.String() != wantOut.String() {
 			b.Fatalf("unexpected output: %s (stderr: %s)", buffers.Stdout, buffers.Stderr)
 		}
 	}

@@ -33,14 +33,13 @@ func TestSeccompDenySyslogWithErrno(t *testing.T) {
 
 	container, err := newContainer(t, config)
 	ok(t, err)
-	defer container.Destroy() //nolint:errcheck
+	defer destroyContainer(container)
 
 	buffers := newStdBuffers()
 	pwd := &libcontainer.Process{
 		Cwd:    "/",
 		Args:   []string{"dmesg"},
 		Env:    standardEnvironment,
-		Stdin:  buffers.Stdin,
 		Stdout: buffers.Stdout,
 		Stderr: buffers.Stderr,
 		Init:   true,
@@ -81,14 +80,13 @@ func TestSeccompDenySyslog(t *testing.T) {
 
 	container, err := newContainer(t, config)
 	ok(t, err)
-	defer container.Destroy() //nolint:errcheck
+	defer destroyContainer(container)
 
 	buffers := newStdBuffers()
 	pwd := &libcontainer.Process{
 		Cwd:    "/",
 		Args:   []string{"dmesg"},
 		Env:    standardEnvironment,
-		Stdin:  buffers.Stdin,
 		Stdout: buffers.Stdout,
 		Stderr: buffers.Stderr,
 		Init:   true,
@@ -136,14 +134,13 @@ func TestSeccompPermitWriteConditional(t *testing.T) {
 
 	container, err := newContainer(t, config)
 	ok(t, err)
-	defer container.Destroy() //nolint:errcheck
+	defer destroyContainer(container)
 
 	buffers := newStdBuffers()
 	dmesg := &libcontainer.Process{
 		Cwd:    "/",
 		Args:   []string{"busybox", "ls", "/"},
 		Env:    standardEnvironment,
-		Stdin:  buffers.Stdin,
 		Stdout: buffers.Stdout,
 		Stderr: buffers.Stderr,
 		Init:   true,
@@ -188,14 +185,13 @@ func TestSeccompDenyWriteConditional(t *testing.T) {
 
 	container, err := newContainer(t, config)
 	ok(t, err)
-	defer container.Destroy() //nolint:errcheck
+	defer destroyContainer(container)
 
 	buffers := newStdBuffers()
 	dmesg := &libcontainer.Process{
 		Cwd:    "/",
 		Args:   []string{"busybox", "ls", "does_not_exist"},
 		Env:    standardEnvironment,
-		Stdin:  buffers.Stdin,
 		Stdout: buffers.Stdout,
 		Stderr: buffers.Stderr,
 		Init:   true,

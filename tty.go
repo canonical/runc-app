@@ -9,8 +9,8 @@ import (
 	"sync"
 
 	"github.com/containerd/console"
+	"github.com/opencontainers/runc/internal/cmsg"
 	"github.com/opencontainers/runc/libcontainer"
-	"github.com/opencontainers/runc/libcontainer/utils"
 )
 
 type tty struct {
@@ -44,7 +44,7 @@ func setupProcessPipes(p *libcontainer.Process, rootuid, rootgid int) (*tty, err
 		},
 	}
 	// add the process's io to the post start closers if they support close
-	for _, cc := range []interface{}{
+	for _, cc := range []any{
 		p.Stdin,
 		p.Stdout,
 		p.Stderr,
@@ -100,7 +100,7 @@ func (t *tty) initHostConsole() error {
 }
 
 func (t *tty) recvtty(socket *os.File) (Err error) {
-	f, err := utils.RecvFile(socket)
+	f, err := cmsg.RecvFile(socket)
 	if err != nil {
 		return err
 	}

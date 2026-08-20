@@ -1,7 +1,6 @@
 package integration
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -32,9 +31,7 @@ func TestExecPS(t *testing.T) {
 }
 
 func TestUsernsExecPS(t *testing.T) {
-	if _, err := os.Stat("/proc/self/ns/user"); os.IsNotExist(err) {
-		t.Skip("Test requires userns.")
-	}
+	needUserNS(t)
 	testExecPS(t, true)
 }
 
@@ -65,7 +62,7 @@ func TestIPCPrivate(t *testing.T) {
 	ok(t, err)
 
 	config := newTemplateConfig(t, nil)
-	buffers := runContainerOk(t, config, "readlink", "/proc/self/ns/ipc")
+	buffers := runContainerOk(t, config, "readlink", "-v", "/proc/self/ns/ipc")
 
 	if actual := strings.Trim(buffers.Stdout.String(), "\n"); actual == l {
 		t.Fatalf("ipc link should be private to the container but equals host %q %q", actual, l)
@@ -82,7 +79,7 @@ func TestIPCHost(t *testing.T) {
 
 	config := newTemplateConfig(t, nil)
 	config.Namespaces.Remove(configs.NEWIPC)
-	buffers := runContainerOk(t, config, "readlink", "/proc/self/ns/ipc")
+	buffers := runContainerOk(t, config, "readlink", "-v", "/proc/self/ns/ipc")
 
 	if actual := strings.Trim(buffers.Stdout.String(), "\n"); actual != l {
 		t.Fatalf("ipc link not equal to host link %q %q", actual, l)
@@ -99,7 +96,7 @@ func TestIPCJoinPath(t *testing.T) {
 
 	config := newTemplateConfig(t, nil)
 	config.Namespaces.Add(configs.NEWIPC, "/proc/1/ns/ipc")
-	buffers := runContainerOk(t, config, "readlink", "/proc/self/ns/ipc")
+	buffers := runContainerOk(t, config, "readlink", "-v", "/proc/self/ns/ipc")
 
 	if actual := strings.Trim(buffers.Stdout.String(), "\n"); actual != l {
 		t.Fatalf("ipc link not equal to host link %q %q", actual, l)
@@ -124,10 +121,7 @@ func TestRlimit(t *testing.T) {
 }
 
 func TestUsernsRlimit(t *testing.T) {
-	if _, err := os.Stat("/proc/self/ns/user"); os.IsNotExist(err) {
-		t.Skip("Test requires userns.")
-	}
-
+	needUserNS(t)
 	testRlimit(t, true)
 }
 
@@ -168,19 +162,20 @@ func TestEnter(t *testing.T) {
 	stdinR, stdinW, err := os.Pipe()
 	ok(t, err)
 
-	var stdout, stdout2 bytes.Buffer
+	var stdout, stdout2 strings.Builder
 
 	pconfig := libcontainer.Process{
 		Cwd:    "/",
-		Args:   []string{"sh", "-c", "cat && readlink /proc/self/ns/pid"},
+		Args:   []string{"sh", "-c", "cat && readlink -v /proc/self/ns/pid"},
 		Env:    standardEnvironment,
 		Stdin:  stdinR,
 		Stdout: &stdout,
+		Stderr: new(strings.Builder),
 		Init:   true,
 	}
 	err = container.Run(&pconfig)
 	_ = stdinR.Close()
-	defer stdinW.Close() //nolint: errcheck
+	defer stdinW.Close()
 	ok(t, err)
 	pid, err := pconfig.Pid()
 	ok(t, err)
@@ -189,16 +184,16 @@ func TestEnter(t *testing.T) {
 	stdinR2, stdinW2, err := os.Pipe()
 	ok(t, err)
 	pconfig2 := libcontainer.Process{
-		Cwd: "/",
-		Env: standardEnvironment,
+		Cwd:    "/",
+		Args:   []string{"sh", "-c", "cat && readlink -v /proc/self/ns/pid"},
+		Env:    standardEnvironment,
+		Stdin:  stdinR2,
+		Stdout: &stdout2,
+		Stderr: new(strings.Builder),
 	}
-	pconfig2.Args = []string{"sh", "-c", "cat && readlink /proc/self/ns/pid"}
-	pconfig2.Stdin = stdinR2
-	pconfig2.Stdout = &stdout2
-
 	err = container.Run(&pconfig2)
 	_ = stdinR2.Close()
-	defer stdinW2.Close() //nolint: errcheck
+	defer stdinW2.Close()
 	ok(t, err)
 
 	pid2, err := pconfig2.Pid()
@@ -246,7 +241,7 @@ func TestProcessEnv(t *testing.T) {
 	ok(t, err)
 	defer destroyContainer(container)
 
-	var stdout bytes.Buffer
+	var stdout strings.Builder
 	pconfig := libcontainer.Process{
 		Cwd:  "/",
 		Args: []string{"sh", "-c", "env"},
@@ -258,6 +253,7 @@ func TestProcessEnv(t *testing.T) {
 		},
 		Stdin:  nil,
 		Stdout: &stdout,
+		Stderr: new(strings.Builder),
 		Init:   true,
 	}
 	err = container.Run(&pconfig)
@@ -291,13 +287,14 @@ func TestProcessEmptyCaps(t *testing.T) {
 	ok(t, err)
 	defer destroyContainer(container)
 
-	var stdout bytes.Buffer
+	var stdout strings.Builder
 	pconfig := libcontainer.Process{
 		Cwd:    "/",
 		Args:   []string{"sh", "-c", "cat /proc/self/status"},
 		Env:    standardEnvironment,
 		Stdin:  nil,
 		Stdout: &stdout,
+		Stderr: new(strings.Builder),
 		Init:   true,
 	}
 	err = container.Run(&pconfig)
@@ -334,13 +331,14 @@ func TestProcessCaps(t *testing.T) {
 	ok(t, err)
 	defer destroyContainer(container)
 
-	var stdout bytes.Buffer
+	var stdout strings.Builder
 	pconfig := libcontainer.Process{
 		Cwd:          "/",
 		Args:         []string{"sh", "-c", "cat /proc/self/status"},
 		Env:          standardEnvironment,
 		Stdin:        nil,
 		Stdout:       &stdout,
+		Stderr:       new(strings.Builder),
 		Capabilities: &configs.Capabilities{},
 		Init:         true,
 	}
@@ -394,13 +392,14 @@ func TestAdditionalGroups(t *testing.T) {
 	ok(t, err)
 	defer destroyContainer(container)
 
-	var stdout bytes.Buffer
+	var stdout strings.Builder
 	pconfig := libcontainer.Process{
 		Cwd:              "/",
 		Args:             []string{"sh", "-c", "id", "-Gn"},
 		Env:              standardEnvironment,
 		Stdin:            nil,
 		Stdout:           &stdout,
+		Stderr:           new(strings.Builder),
 		AdditionalGroups: []int{3333, 99999},
 		Init:             true,
 	}
@@ -441,7 +440,7 @@ func TestFreeze(t *testing.T) {
 	}
 }
 
-func testFreeze(t *testing.T, withSystemd bool, useSet bool) {
+func testFreeze(t *testing.T, withSystemd, useSet bool) {
 	if testing.Short() {
 		return
 	}
@@ -466,7 +465,7 @@ func testFreeze(t *testing.T, withSystemd bool, useSet bool) {
 	}
 	err = container.Run(pconfig)
 	_ = stdinR.Close()
-	defer stdinW.Close() //nolint: errcheck
+	defer stdinW.Close()
 	ok(t, err)
 
 	if !useSet {
@@ -533,39 +532,33 @@ func TestPidsSystemd(t *testing.T) {
 	testPids(t, true)
 }
 
+func mkPtr[T any](v T) *T { return &v }
+
+func truePipeline(n int) string {
+	return strings.Join(slices.Repeat([]string{"/bin/true"}, n), " | ")
+}
+
 func testPids(t *testing.T, systemd bool) {
 	if testing.Short() {
 		return
 	}
 
 	config := newTemplateConfig(t, &tParam{systemd: systemd})
-	config.Cgroups.Resources.PidsLimit = -1
+	config.Cgroups.Resources.PidsLimit = mkPtr[int64](-1)
 
 	// Running multiple processes, expecting it to succeed with no pids limit.
-	_ = runContainerOk(t, config, "/bin/sh", "-c", "/bin/true | /bin/true | /bin/true | /bin/true")
+	runContainerOk(t, config, "/bin/sh", "-c", truePipeline(4))
 
 	// Enforce a permissive limit. This needs to be fairly hand-wavey due to the
 	// issues with running Go binaries with pids restrictions (see below).
-	config.Cgroups.Resources.PidsLimit = 64
-	_ = runContainerOk(t, config, "/bin/sh", "-c", `
-	/bin/true | /bin/true | /bin/true | /bin/true | /bin/true | /bin/true | bin/true | /bin/true |
-	/bin/true | /bin/true | /bin/true | /bin/true | /bin/true | /bin/true | bin/true | /bin/true |
-	/bin/true | /bin/true | /bin/true | /bin/true | /bin/true | /bin/true | bin/true | /bin/true |
-	/bin/true | /bin/true | /bin/true | /bin/true | /bin/true | /bin/true | bin/true | /bin/true`)
+	config.Cgroups.Resources.PidsLimit = mkPtr[int64](64)
+	runContainerOk(t, config, "/bin/sh", "-c", truePipeline(32))
 
 	// Enforce a restrictive limit. 64 * /bin/true + 1 * shell should cause
 	// this to fail reliably.
-	config.Cgroups.Resources.PidsLimit = 64
-	out, _, err := runContainer(t, config, "/bin/sh", "-c", `
-	/bin/true | /bin/true | /bin/true | /bin/true | /bin/true | /bin/true | bin/true | /bin/true |
-	/bin/true | /bin/true | /bin/true | /bin/true | /bin/true | /bin/true | bin/true | /bin/true |
-	/bin/true | /bin/true | /bin/true | /bin/true | /bin/true | /bin/true | bin/true | /bin/true |
-	/bin/true | /bin/true | /bin/true | /bin/true | /bin/true | /bin/true | bin/true | /bin/true |
-	/bin/true | /bin/true | /bin/true | /bin/true | /bin/true | /bin/true | bin/true | /bin/true |
-	/bin/true | /bin/true | /bin/true | /bin/true | /bin/true | /bin/true | bin/true | /bin/true |
-	/bin/true | /bin/true | /bin/true | /bin/true | /bin/true | /bin/true | bin/true | /bin/true |
-	/bin/true | /bin/true | /bin/true | /bin/true | /bin/true | /bin/true | bin/true | /bin/true`)
-	if err != nil && !strings.Contains(out.String(), "sh: can't fork") {
+	config.Cgroups.Resources.PidsLimit = mkPtr[int64](64)
+	out, _, err := runContainer(t, config, "/bin/sh", "-c", truePipeline(64))
+	if err != nil && !strings.Contains(out.String(), "can't fork") {
 		t.Fatal(err)
 	}
 
@@ -746,7 +739,7 @@ func TestContainerState(t *testing.T) {
 	err = container.Run(p)
 	ok(t, err)
 	_ = stdinR.Close()
-	defer stdinW.Close() //nolint: errcheck
+	defer stdinW.Close()
 
 	st, err := container.State()
 	ok(t, err)
@@ -770,7 +763,7 @@ func TestPassExtraFiles(t *testing.T) {
 	ok(t, err)
 	defer destroyContainer(container)
 
-	var stdout bytes.Buffer
+	var stdout strings.Builder
 	pipeout1, pipein1, err := os.Pipe()
 	ok(t, err)
 	pipeout2, pipein2, err := os.Pipe()
@@ -829,13 +822,14 @@ func TestSysctl(t *testing.T) {
 	ok(t, err)
 	defer destroyContainer(container)
 
-	var stdout bytes.Buffer
+	var stdout strings.Builder
 	pconfig := libcontainer.Process{
 		Cwd:    "/proc/sys/kernel",
 		Args:   []string{"sh", "-c", cmd},
 		Env:    standardEnvironment,
 		Stdin:  nil,
 		Stdout: &stdout,
+		Stderr: new(strings.Builder),
 		Init:   true,
 	}
 	err = container.Run(&pconfig)
@@ -858,8 +852,8 @@ func TestMountCgroupRO(t *testing.T) {
 	buffers := runContainerOk(t, config, "mount")
 
 	mountInfo := buffers.Stdout.String()
-	lines := strings.Split(mountInfo, "\n")
-	for _, l := range lines {
+	lines := strings.SplitSeq(mountInfo, "\n")
+	for l := range lines {
 		if strings.HasPrefix(l, "tmpfs on /sys/fs/cgroup") {
 			if !strings.Contains(l, "ro") ||
 				!strings.Contains(l, "nosuid") ||
@@ -900,8 +894,8 @@ func TestMountCgroupRW(t *testing.T) {
 	buffers := runContainerOk(t, config, "mount")
 
 	mountInfo := buffers.Stdout.String()
-	lines := strings.Split(mountInfo, "\n")
-	for _, l := range lines {
+	lines := strings.SplitSeq(mountInfo, "\n")
+	for l := range lines {
 		if strings.HasPrefix(l, "tmpfs on /sys/fs/cgroup") {
 			if !strings.Contains(l, "rw") ||
 				!strings.Contains(l, "nosuid") ||
@@ -938,13 +932,14 @@ func TestOomScoreAdj(t *testing.T) {
 	ok(t, err)
 	defer destroyContainer(container)
 
-	var stdout bytes.Buffer
+	var stdout strings.Builder
 	pconfig := libcontainer.Process{
 		Cwd:    "/",
 		Args:   []string{"sh", "-c", "cat /proc/self/oom_score_adj"},
 		Env:    standardEnvironment,
 		Stdin:  nil,
 		Stdout: &stdout,
+		Stderr: new(strings.Builder),
 		Init:   true,
 	}
 	err = container.Run(&pconfig)
@@ -1071,18 +1066,20 @@ func TestHook(t *testing.T) {
 	ok(t, err)
 
 	// e.g: 'ls /prestart ...'
-	cmd := "ls "
+	var cmd strings.Builder
+	cmd.WriteString("ls ")
 	for _, hook := range hookFiles {
-		cmd += "/" + hook + " "
+		cmd.WriteString("/" + hook + " ")
 	}
 
-	var stdout bytes.Buffer
+	var stdout strings.Builder
 	pconfig := libcontainer.Process{
 		Cwd:    "/",
-		Args:   []string{"sh", "-c", cmd},
+		Args:   []string{"sh", "-c", cmd.String()},
 		Env:    standardEnvironment,
 		Stdin:  nil,
 		Stdout: &stdout,
+		Stderr: new(strings.Builder),
 		Init:   true,
 	}
 	err = container.Run(&pconfig)
@@ -1097,7 +1094,7 @@ func TestHook(t *testing.T) {
 
 	for _, hook := range []string{"prestart", "createRuntime", "poststart"} {
 		fi, err := os.Stat(filepath.Join(config.Rootfs, hook))
-		if err == nil || !os.IsNotExist(err) {
+		if err == nil || !errors.Is(err, os.ErrNotExist) {
 			t.Fatalf("expected file '%s to not exists, but it does", fi.Name())
 		}
 	}
@@ -1172,7 +1169,7 @@ func TestRootfsPropagationSlaveMount(t *testing.T) {
 
 	err = container.Run(pconfig)
 	_ = stdinR.Close()
-	defer stdinW.Close() //nolint: errcheck
+	defer stdinW.Close()
 	ok(t, err)
 
 	// Create mnt2host under dir1host and bind mount itself on top of it.
@@ -1187,7 +1184,7 @@ func TestRootfsPropagationSlaveMount(t *testing.T) {
 	ok(t, err)
 
 	// Run "cat /proc/self/mountinfo" in container and look at mount points.
-	var stdout2 bytes.Buffer
+	var stdout2 strings.Builder
 
 	stdinR2, stdinW2, err := os.Pipe()
 	ok(t, err)
@@ -1198,11 +1195,12 @@ func TestRootfsPropagationSlaveMount(t *testing.T) {
 		Env:    standardEnvironment,
 		Stdin:  stdinR2,
 		Stdout: &stdout2,
+		Stderr: new(strings.Builder),
 	}
 
 	err = container.Run(pconfig2)
 	_ = stdinR2.Close()
-	defer stdinW2.Close() //nolint: errcheck
+	defer stdinW2.Close()
 	ok(t, err)
 
 	_ = stdinW2.Close()
@@ -1214,8 +1212,8 @@ func TestRootfsPropagationSlaveMount(t *testing.T) {
 	dir2cont = filepath.Join(dir1cont, filepath.Base(dir2host))
 
 	propagationInfo := stdout2.String()
-	lines := strings.Split(propagationInfo, "\n")
-	for _, l := range lines {
+	lines := strings.SplitSeq(propagationInfo, "\n")
+	for l := range lines {
 		linefields := strings.Split(l, " ")
 		if len(linefields) < 5 {
 			continue
@@ -1284,7 +1282,7 @@ func TestRootfsPropagationSharedMount(t *testing.T) {
 
 	err = container.Run(pconfig)
 	_ = stdinR.Close()
-	defer stdinW.Close() //nolint: errcheck
+	defer stdinW.Close()
 	ok(t, err)
 
 	// Create mnt2cont under dir1host. This will become visible inside container
@@ -1298,7 +1296,7 @@ func TestRootfsPropagationSharedMount(t *testing.T) {
 	dir2cont = filepath.Join(dir1cont, filepath.Base(dir2host))
 
 	// Mount something in container and see if it is visible on host.
-	var stdout2 bytes.Buffer
+	var stdout2 strings.Builder
 
 	stdinR2, stdinW2, err := os.Pipe()
 	ok(t, err)
@@ -1309,6 +1307,7 @@ func TestRootfsPropagationSharedMount(t *testing.T) {
 		Env:          standardEnvironment,
 		Stdin:        stdinR2,
 		Stdout:       &stdout2,
+		Stderr:       new(strings.Builder),
 		Capabilities: &configs.Capabilities{},
 	}
 
@@ -1319,7 +1318,7 @@ func TestRootfsPropagationSharedMount(t *testing.T) {
 
 	err = container.Run(pconfig2)
 	_ = stdinR2.Close()
-	defer stdinW2.Close() //nolint: errcheck
+	defer stdinW2.Close()
 	ok(t, err)
 
 	// Wait for process
@@ -1332,7 +1331,7 @@ func TestRootfsPropagationSharedMount(t *testing.T) {
 
 	// Check if mount is visible on host or not.
 	out, err := exec.Command("findmnt", "-n", "-f", "-oTARGET", dir2host).CombinedOutput()
-	outtrim := string(bytes.TrimSpace(out))
+	outtrim := strings.TrimSpace(string(out))
 	if err != nil {
 		t.Logf("findmnt error %q: %q", err, outtrim)
 	}
@@ -1352,7 +1351,7 @@ func TestPIDHost(t *testing.T) {
 
 	config := newTemplateConfig(t, nil)
 	config.Namespaces.Remove(configs.NEWPID)
-	buffers := runContainerOk(t, config, "readlink", "/proc/self/ns/pid")
+	buffers := runContainerOk(t, config, "readlink", "-v", "/proc/self/ns/pid")
 
 	if actual := strings.Trim(buffers.Stdout.String(), "\n"); actual != l {
 		t.Fatalf("ipc link not equal to host link %q %q", actual, l)
@@ -1381,9 +1380,7 @@ func testPidnsInitKill(t *testing.T, config *configs.Config) {
 	// Run a container with two long-running processes.
 	container, err := newContainer(t, config)
 	ok(t, err)
-	defer func() {
-		_ = container.Destroy()
-	}()
+	defer destroyContainer(container)
 
 	process1 := &libcontainer.Process{
 		Cwd:  "/",
@@ -1440,7 +1437,7 @@ func TestInitJoinPID(t *testing.T) {
 	}
 	err = container1.Run(init1)
 	_ = stdinR1.Close()
-	defer stdinW1.Close() //nolint: errcheck
+	defer stdinW1.Close()
 	ok(t, err)
 
 	// get the state of the first container
@@ -1467,7 +1464,7 @@ func TestInitJoinPID(t *testing.T) {
 	}
 	err = container2.Run(init2)
 	_ = stdinR2.Close()
-	defer stdinW2.Close() //nolint: errcheck
+	defer stdinW2.Close()
 	ok(t, err)
 	// get the state of the second container
 	state2, err := container2.State()
@@ -1494,6 +1491,7 @@ func TestInitJoinPID(t *testing.T) {
 		Args:   []string{"ps"},
 		Env:    standardEnvironment,
 		Stdout: buffers.Stdout,
+		Stderr: new(strings.Builder),
 	}
 	err = container1.Run(ps)
 	ok(t, err)
@@ -1517,9 +1515,7 @@ func TestInitJoinPID(t *testing.T) {
 }
 
 func TestInitJoinNetworkAndUser(t *testing.T) {
-	if _, err := os.Stat("/proc/self/ns/user"); os.IsNotExist(err) {
-		t.Skip("Test requires userns.")
-	}
+	needUserNS(t)
 	if testing.Short() {
 		return
 	}
@@ -1541,7 +1537,7 @@ func TestInitJoinNetworkAndUser(t *testing.T) {
 	}
 	err = container1.Run(init1)
 	_ = stdinR1.Close()
-	defer stdinW1.Close() //nolint: errcheck
+	defer stdinW1.Close()
 	ok(t, err)
 
 	// get the state of the first container
@@ -1575,7 +1571,7 @@ func TestInitJoinNetworkAndUser(t *testing.T) {
 	}
 	err = container2.Run(init2)
 	_ = stdinR2.Close()
-	defer stdinW2.Close() //nolint: errcheck
+	defer stdinW2.Close()
 	ok(t, err)
 
 	// get the state of the second container
@@ -1622,12 +1618,13 @@ func TestTmpfsCopyUp(t *testing.T) {
 	ok(t, err)
 	defer destroyContainer(container)
 
-	var stdout bytes.Buffer
+	var stdout strings.Builder
 	pconfig := libcontainer.Process{
 		Args:   []string{"ls", "/etc/passwd"},
 		Env:    standardEnvironment,
 		Stdin:  nil,
 		Stdout: &stdout,
+		Stderr: new(strings.Builder),
 		Init:   true,
 	}
 	err = container.Run(&pconfig)
@@ -1645,7 +1642,7 @@ func TestTmpfsCopyUp(t *testing.T) {
 }
 
 func TestCGROUPPrivate(t *testing.T) {
-	if _, err := os.Stat("/proc/self/ns/cgroup"); os.IsNotExist(err) {
+	if _, err := os.Stat("/proc/self/ns/cgroup"); errors.Is(err, os.ErrNotExist) {
 		t.Skip("Test requires cgroupns.")
 	}
 	if testing.Short() {
@@ -1657,7 +1654,7 @@ func TestCGROUPPrivate(t *testing.T) {
 
 	config := newTemplateConfig(t, nil)
 	config.Namespaces.Add(configs.NEWCGROUP, "")
-	buffers := runContainerOk(t, config, "readlink", "/proc/self/ns/cgroup")
+	buffers := runContainerOk(t, config, "readlink", "-v", "/proc/self/ns/cgroup")
 
 	if actual := strings.Trim(buffers.Stdout.String(), "\n"); actual == l {
 		t.Fatalf("cgroup link should be private to the container but equals host %q %q", actual, l)
@@ -1665,7 +1662,7 @@ func TestCGROUPPrivate(t *testing.T) {
 }
 
 func TestCGROUPHost(t *testing.T) {
-	if _, err := os.Stat("/proc/self/ns/cgroup"); os.IsNotExist(err) {
+	if _, err := os.Stat("/proc/self/ns/cgroup"); errors.Is(err, os.ErrNotExist) {
 		t.Skip("Test requires cgroupns.")
 	}
 	if testing.Short() {
@@ -1676,7 +1673,7 @@ func TestCGROUPHost(t *testing.T) {
 	ok(t, err)
 
 	config := newTemplateConfig(t, nil)
-	buffers := runContainerOk(t, config, "readlink", "/proc/self/ns/cgroup")
+	buffers := runContainerOk(t, config, "readlink", "-v", "/proc/self/ns/cgroup")
 
 	if actual := strings.Trim(buffers.Stdout.String(), "\n"); actual != l {
 		t.Fatalf("cgroup link not equal to host link %q %q", actual, l)
@@ -1723,10 +1720,10 @@ func testFdLeaks(t *testing.T, systemd bool) {
 	// Examples of this open-once file descriptors are:
 	//  - /sys/fs/cgroup dirfd opened by prepareOpenat2 in libct/cgroups;
 	//  - dbus connection opened by getConnection in libct/cgroups/systemd.
-	_ = runContainerOk(t, config, "true")
+	runContainerOk(t, config, "true")
 	fds0 := fdList(t)
 
-	_ = runContainerOk(t, config, "true")
+	runContainerOk(t, config, "true")
 	fds1 := fdList(t)
 
 	if slices.Equal(fds0, fds1) {
@@ -1770,10 +1767,7 @@ next_fd:
 // Test that a container using user namespaces is able to bind mount a folder
 // that does not have permissions for group/others.
 func TestBindMountAndUser(t *testing.T) {
-	if _, err := os.Stat("/proc/self/ns/user"); errors.Is(err, os.ErrNotExist) {
-		t.Skip("userns is unsupported")
-	}
-
+	needUserNS(t)
 	if testing.Short() {
 		return
 	}
@@ -1813,9 +1807,9 @@ func TestBindMountAndUser(t *testing.T) {
 
 	container, err := newContainer(t, config)
 	ok(t, err)
-	defer container.Destroy() //nolint: errcheck
+	defer destroyContainer(container)
 
-	var stdout bytes.Buffer
+	var stdout strings.Builder
 
 	pconfig := libcontainer.Process{
 		Cwd:    "/",

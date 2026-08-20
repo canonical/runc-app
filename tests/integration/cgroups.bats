@@ -113,11 +113,15 @@ function setup() {
 	[[ ${lines[0]} = "0::/foo" ]]
 
 	# teardown: remove "/foo"
-	# shellcheck disable=SC2016
-	runc exec test_cgroups_group sh -uxc 'echo -memory > /sys/fs/cgroup/cgroup.subtree_control; for f in $(cat /sys/fs/cgroup/foo/cgroup.procs); do echo $f > /sys/fs/cgroup/cgroup.procs; done; rmdir /sys/fs/cgroup/foo'
+	cat <<'EOF' | runc exec test_cgroups_group sh -eux
+echo -memory > /sys/fs/cgroup/cgroup.subtree_control
+for pid in $(cat /sys/fs/cgroup/foo/cgroup.procs); do
+	echo $pid > /sys/fs/cgroup/cgroup.procs || true
+done
+rmdir /sys/fs/cgroup/foo
+EOF
 	runc exec test_cgroups_group test ! -d /sys/fs/cgroup/foo
 	[ "$status" -eq 0 ]
-	#
 }
 
 @test "runc run (cgroup v1 + unified resources should fail)" {
@@ -320,6 +324,37 @@ convert_hugetlb_size() {
 	done
 }
 
+# https://github.com/opencontainers/runc/issues/4014.
+@test "runc run (pids.limit=0 means 1)" {
+	[ $EUID -ne 0 ] && requires rootless_cgroup
+	requires cgroups_pids
+
+	set_cgroups_path
+	update_config '.linux.resources.pids.limit = 0'
+
+	runc run -d --console-socket "$CONSOLE_SOCKET" test_pids
+	[ "$status" -eq 0 ]
+	# systemd doesn't support TasksMax=0 so runc will silently remap it to 1
+	# (for consistency, we do this for systemd *and* cgroupfs).
+	check_cgroup_value "pids.max" "1"
+	check_systemd_value "TasksMax" "1"
+}
+
+# https://github.com/opencontainers/runc/issues/4014.
+@test "runc run (pids.limit=-1 means unlimited)" {
+	[ $EUID -ne 0 ] && requires rootless_cgroup
+	requires cgroups_pids
+
+	set_cgroups_path
+	update_config '.linux.resources.pids.limit = -1'
+
+	runc run -d --console-socket "$CONSOLE_SOCKET" test_pids
+	[ "$status" -eq 0 ]
+	check_cgroup_value "pids.max" "max"
+	# systemd < v227 shows UINT64_MAX instead of "infinity".
+	check_systemd_value "TasksMax" "infinity" "18446744073709551615"
+}
+
 @test "runc run (cgroup v2 resources.unified only)" {
 	requires root cgroups_v2
 
@@ -327,8 +362,8 @@ convert_hugetlb_size() {
 	update_config ' .linux.resources.unified |= {
 				"memory.min":   "131072",
 				"memory.low":   "524288",
-				"memory.high": "5242880",
-				"memory.max": "10485760",
+				"memory.high": "20971520",
+				"memory.max": "41943040",
 				"pids.max": "99",
 				"cpu.max": "10000 100000",
 				"cpu.weight": "42"
@@ -343,15 +378,15 @@ convert_hugetlb_size() {
 
 	echo "$output" | grep -q '^memory.min:131072$'
 	echo "$output" | grep -q '^memory.low:524288$'
-	echo "$output" | grep -q '^memory.high:5242880$'
-	echo "$output" | grep -q '^memory.max:10485760$'
+	echo "$output" | grep -q '^memory.high:20971520$'
+	echo "$output" | grep -q '^memory.max:41943040$'
 	echo "$output" | grep -q '^pids.max:99$'
 	echo "$output" | grep -q '^cpu.max:10000 100000$'
 
 	check_systemd_value "MemoryMin" 131072
 	check_systemd_value "MemoryLow" 524288
-	check_systemd_value "MemoryHigh" 5242880
-	check_systemd_value "MemoryMax" 10485760
+	check_systemd_value "MemoryHigh" 20971520
+	check_systemd_value "MemoryMax" 41943040
 	check_systemd_value "TasksMax" 99
 	check_cpu_quota 10000 100000
 	check_cpu_weight 42
@@ -393,7 +428,7 @@ convert_hugetlb_size() {
 			}
 			| .linux.resources.unified |= {
 				"memory.min": "131072",
-				"memory.max": "10485760",
+				"memory.max": "41943040",
 				"pids.max": "42",
 				"cpu.max": "5000 50000",
 				"cpu.weight": "42"
@@ -408,7 +443,7 @@ convert_hugetlb_size() {
 
 	runc exec test_cgroups_unified cat /sys/fs/cgroup/memory.max
 	[ "$status" -eq 0 ]
-	[ "$output" = '10485760' ]
+	[ "$output" = '41943040' ]
 
 	runc exec test_cgroups_unified cat /sys/fs/cgroup/pids.max
 	[ "$status" -eq 0 ]
@@ -490,7 +525,7 @@ convert_hugetlb_size() {
 		runc resume ct1
 	) &
 
-	# Exec should not timeout or succeed.
+	# Exec should succeed (once the container is resumed).
 	runc exec --ignore-paused ct1 echo ok
 	[ "$status" -eq 0 ]
 	[ "$output" = "ok" ]
