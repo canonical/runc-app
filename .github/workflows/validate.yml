@@ -8,16 +8,19 @@ on:
       - release-*
   pull_request:
   workflow_dispatch:
-env:
-  GO_VERSION: 1.24
+
 permissions:
   contents: read
+
+env:
+  GO_VERSION: 1.25
+  LIBPATHRS_VERSION: "0.2.5"
 
 jobs:
   keyring:
     runs-on: ubuntu-24.04
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v6
     - name: check runc.keyring
       run: make validate-keyring
 
@@ -29,7 +32,7 @@ jobs:
       checks: write # to allow the action to annotate code in the PR.
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 2
       - uses: actions/setup-go@v6
@@ -41,7 +44,7 @@ jobs:
           sudo apt -qy install libseccomp-dev
       - uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.6
+          version: v2.10
           skip-cache: true
       # Extra linters, only checking new code from a pull request to main.
       - name: lint-extra
@@ -52,12 +55,12 @@ jobs:
   modernize:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 2
       - uses: actions/setup-go@v6
         with:
-          go-version: "${{ env.GO_VERSION }}"
+          go-version: stable # modernize@latest may require latest Go.
       - name: install deps
         run: |
           sudo apt -q update
@@ -68,7 +71,7 @@ jobs:
           git diff --exit-code
       - name: run modernize
         run: |
-          go run golang.org/x/tools/gopls/internal/analysis/modernize/cmd/modernize@latest -fix -test ./...
+          go run golang.org/x/tools/go/analysis/passes/modernize/cmd/modernize@latest -fix ./...
           git diff --exit-code
 
   compile-buildtags:
@@ -77,7 +80,7 @@ jobs:
       # Don't ignore C warnings. Note that the output of "go env CGO_CFLAGS" by default is "-g -O2", so we keep them.
       CGO_CFLAGS: -g -O2 -Werror
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - name: install go
         uses: actions/setup-go@v6
         with:
@@ -85,16 +88,19 @@ jobs:
       - name: install deps
         run: |
           sudo apt update
-          sudo apt -y install libseccomp-dev
+          sudo apt -y install libseccomp-dev lld
+      - name: install libpathrs ${{ env.LIBPATHRS_VERSION }}
+        run: |
+          sudo -E PATH="$PATH" ./script/build-libpathrs.sh "$LIBPATHRS_VERSION" /usr
       - name: compile with no build tags
         run: make BUILDTAGS=""
       - name: compile with runc_nocriu build tag
-        run: make EXTRA_BUILDTAGS="runc_nocriu"
+        run: make RUNC_BUILDTAGS="runc_nocriu"
 
   codespell:
     runs-on: ubuntu-24.04
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v6
     - name: install deps
       # Version of codespell bundled with Ubuntu is way old, so use pip.
       run: pip install --break-system-packages codespell==v2.4.1
@@ -104,19 +110,19 @@ jobs:
   shfmt:
     runs-on: ubuntu-24.04
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v6
     - name: shfmt
       run: make shfmt
 
   shellcheck:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - name: install shellcheck
         env:
-          VERSION: v0.10.0
+          VERSION: v0.11.0
           BASEURL: https://github.com/koalaman/shellcheck/releases/download
-          SHA256: f35ae15a4677945428bdfe61ccc297490d89dd1e544cc06317102637638c6deb
+          SHA256: 4da528ddb3a4d1b7b24a59d4e16eb2f5fd960f4bd9a3708a15baddbdf1d5a55b
         run: |
           mkdir ~/bin
           curl -sSfL --retry 5 $BASEURL/$VERSION/shellcheck-$VERSION.linux.x86_64.tar.xz |
@@ -135,14 +141,14 @@ jobs:
   space-at-eol:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - run: rm -fr vendor
       - run: if git -P grep -I -n '\s$'; then echo "^^^ extra whitespace at EOL, please fix"; exit 1; fi
 
   deps:
     runs-on: ubuntu-24.04
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v6
     - name: install go
       uses: actions/setup-go@v6
       with:
@@ -187,7 +193,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
     - name: checkout
-      uses: actions/checkout@v5
+      uses: actions/checkout@v6
     - name: install deps
       run: |
         sudo apt -qq update
@@ -200,7 +206,7 @@ jobs:
   check-go:
     runs-on: ubuntu-24.04
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v6
     - name: check Go version
       run: |
         GO_VER=$(awk -F= '/^ARG\s+GO_VERSION=/ {print $2; quit}' Dockerfile)
@@ -215,7 +221,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
     - name: checkout
-      uses: actions/checkout@v5
+      uses: actions/checkout@v6
 
     - name: check CHANGELOG.md
       run: make verify-changelog
@@ -234,7 +240,7 @@ jobs:
     - name: make releaseall
       run: make releaseall
     - name: upload artifacts
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: release-${{ github.run_id }}
         path: release/*
@@ -243,7 +249,7 @@ jobs:
   get-images:
     runs-on: ubuntu-24.04
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v6
     - name: install bashbrew
       env:
         BASEURL: https://github.com/docker-library/bashbrew/releases/download
@@ -263,6 +269,53 @@ jobs:
         ./bootstrap-get-images.sh > get-images.sh
         git diff --exit-code
 
+  conmon:
+    runs-on: ubuntu-24.04
+    steps:
+    - name: checkout
+      uses: actions/checkout@v6
+
+    - name: install runc and conmon deps
+      # XXX maybe switch to conmon/hack/github-actions-setup if the burden
+      # to maintain the list of needed packages here is too much to handle.
+      run: |
+        sudo apt update
+        sudo apt -y install libseccomp-dev libglib2.0-dev libsystemd-dev socat
+    - name: install libpathrs ${{ env.LIBPATHRS_VERSION }}
+      run: |
+        sudo -E PATH="$PATH" ./script/build-libpathrs.sh "$LIBPATHRS_VERSION" /usr
+
+    - name: install Go
+      uses: actions/setup-go@v6
+      with:
+        go-version: "${{ env.GO_VERSION }}"
+
+    - name: build runc
+      run: make
+
+    - name: setup bats
+      uses: bats-core/bats-action@4.0.0
+      with:
+        bats-version: 1.13.0 # As required by conmon in hack/github-actions-setup.
+        support-install: false
+        assert-install: false
+        detik-install: false
+        file-install: false
+
+    - name: checkout conmon
+      uses: actions/checkout@v6
+      with:
+        repository: containers/conmon
+        path: conmon
+        ref: v2.2.1
+
+    - name: build conmon
+      run: cd conmon && make
+
+    - name: run conmon tests
+      run: |
+        RUNTIME_BINARY=$(pwd)/runc ./conmon/test/run-tests.sh -j $(nproc)
+
   all-done:
     needs:
       - check-go
@@ -270,6 +323,7 @@ jobs:
       - codespell
       - commit
       - compile-buildtags
+      - conmon
       - deps
       - get-images
       - keyring

@@ -21,6 +21,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/opencontainers/cgroups"
+	"github.com/opencontainers/runc/internal/cmsg"
 	"github.com/opencontainers/runc/internal/linux"
 	"github.com/opencontainers/runc/internal/pathrs"
 	"github.com/opencontainers/runc/libcontainer/capabilities"
@@ -175,6 +176,7 @@ func startInitialization() (retErr error) {
 		return fmt.Errorf("unable to convert _LIBCONTAINER_LOGPIPE: %w", err)
 	}
 	logPipe := os.NewFile(uintptr(logFd), "logpipe")
+	defer logPipe.Close()
 
 	logrus.SetOutput(logPipe)
 	logrus.SetFormatter(new(logrus.JSONFormatter))
@@ -190,6 +192,7 @@ func startInitialization() (retErr error) {
 			return fmt.Errorf("unable to convert _LIBCONTAINER_FIFOFD: %w", err)
 		}
 		fifoFile = os.NewFile(uintptr(fifoFd), "initfifo")
+		defer fifoFile.Close()
 	}
 
 	var consoleSocket *os.File
@@ -312,7 +315,7 @@ func finalizeNamespace(config *initConfig) error {
 		switch {
 		case err == nil:
 			doChdir = false
-		case os.IsPermission(err):
+		case errors.Is(err, os.ErrPermission):
 			// If we hit an EPERM, we should attempt again after setting up user.
 			// This will allow us to successfully chdir if the container user has access
 			// to the directory, but the user running runc does not.
@@ -404,7 +407,7 @@ func setupConsole(socket *os.File, config *initConfig, mount bool) error {
 		}
 	}
 	// While we can access console.master, using the API is a good idea.
-	if err := utils.SendRawFd(socket, pty.Name(), pty.Fd()); err != nil {
+	if err := cmsg.SendRawFd(socket, pty.Name(), pty.Fd()); err != nil {
 		return err
 	}
 	runtime.KeepAlive(pty)
@@ -478,7 +481,7 @@ func setupUser(config *initConfig) error {
 		setgroups, err = io.ReadAll(setgroupsFile)
 		_ = setgroupsFile.Close()
 	}
-	if err != nil && !os.IsNotExist(err) {
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
 
@@ -726,7 +729,7 @@ func setupPidfd(socket *os.File, initType string) error {
 		return fmt.Errorf("failed to pidfd_open: %w", err)
 	}
 
-	if err := utils.SendRawFd(socket, initType, uintptr(pidFd)); err != nil {
+	if err := cmsg.SendRawFd(socket, initType, uintptr(pidFd)); err != nil {
 		unix.Close(pidFd)
 		return fmt.Errorf("failed to send pidfd on socket: %w", err)
 	}

@@ -14,6 +14,14 @@
  * limitations under the License.
  */
 
+// recvtty is a sample implementation of the consumer side of the
+// --console-socket interface for runc. It supports forwarding console events
+// to and from the container process, as well as acting like a /dev/null
+// black-hole.
+//
+// This tool is only really intended to be used within runc's integration
+// tests, but can be used as an example of how the --console-socket protocol
+// works.
 package main
 
 import (
@@ -26,8 +34,9 @@ import (
 	"sync"
 
 	"github.com/containerd/console"
-	"github.com/opencontainers/runc/libcontainer/utils"
 	"github.com/urfave/cli"
+
+	"github.com/opencontainers/runc/internal/cmsg"
 )
 
 // version will be populated by the Makefile, read from
@@ -92,7 +101,7 @@ func handleSingle(path string, noStdin bool) error {
 	defer socket.Close()
 
 	// Get the master file descriptor from runC.
-	master, err := utils.RecvFile(socket)
+	master, err := cmsg.RecvFile(socket)
 	if err != nil {
 		return err
 	}
@@ -109,17 +118,13 @@ func handleSingle(path string, noStdin bool) error {
 		wg            sync.WaitGroup
 		inErr, outErr error
 	)
-	wg.Add(1)
-	go func() {
+	wg.Go(func() {
 		_, outErr = io.Copy(os.Stdout, c)
-		wg.Done()
-	}()
+	})
 	if !noStdin {
-		wg.Add(1)
-		go func() {
+		wg.Go(func() {
 			_, inErr = io.Copy(c, os.Stdin)
-			wg.Done()
-		}()
+		})
 	}
 
 	// Only close the master fd once we've stopped copying.
@@ -159,7 +164,7 @@ func handleNull(path string) error {
 			defer socket.Close()
 
 			// Get the master file descriptor from runC.
-			master, err := utils.RecvFile(socket)
+			master, err := cmsg.RecvFile(socket)
 			if err != nil {
 				return
 			}

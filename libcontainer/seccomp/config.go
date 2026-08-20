@@ -65,6 +65,7 @@ var archs = map[string]string{
 	"SCMP_ARCH_RISCV64":     "riscv64",
 	"SCMP_ARCH_S390":        "s390",
 	"SCMP_ARCH_S390X":       "s390x",
+	"SCMP_ARCH_LOONGARCH64": "loong64",
 }
 
 // KnownArchs returns the list of the known archs.
@@ -108,6 +109,7 @@ var flags = []string{
 	flagTsync,
 	string(specs.LinuxSeccompFlagSpecAllow),
 	string(specs.LinuxSeccompFlagLog),
+	string(specs.LinuxSeccompFlagWaitKillableRecv),
 }
 
 // KnownFlags returns the list of the known filter flags.
