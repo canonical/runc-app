@@ -8,20 +8,20 @@ tempDir="$(mktemp -d)"
 trap 'rm -rf "$tempDir"' EXIT
 
 # build up rootfs with busybox
-busybox="$(which busybox)" # from busybox-static
+busybox="$(which busybox-static)"
 mkdir "$tempDir/rootfs"
 cp -a "$busybox" "$tempDir/rootfs/"
 
 # rough "rootfs" smoke test (makes sure "busybox" is actually static)
-chroot "$tempDir/rootfs" /busybox true
+chroot "$tempDir/rootfs" /busybox-static true
 
 # make a config.json file for our "bundle"
 runc spec --bundle "$tempDir"
 
 # edit the default command to something we can actually run with our rootfs
 grep '"sh"' "$tempDir/config.json"
-sed -i 's@"sh"@"/busybox","echo","success"@g' "$tempDir/config.json"
-grep '"/busybox","echo","success"' "$tempDir/config.json"
+sed -i 's@"sh"@"/busybox-static","echo","success"@g' "$tempDir/config.json"
+grep '"/busybox-static","echo","success"' "$tempDir/config.json"
 # and disable the TTY
 grep '"terminal": true,' "$tempDir/config.json"
 sed -i 's/"terminal": true,/"terminal": false,/g' "$tempDir/config.json"
