@@ -12,7 +12,6 @@ Copyright: 2017-2023 SUSE LLC
 License: Apache-2.0
 
 Files: tests/cmd/recvtty/recvtty.go
-       libcontainer/utils/cmsg.go
        tests/rootless.sh
 Copyright: 2016-2017 SUSE LLC
 License: Apache-2.0
@@ -20,7 +19,7 @@ License: Apache-2.0
 Files: debian/*
 Copyright: 2015      Alexandre Viau <alexandre@alexandreviau.net>
            2015-2016 Dmitry Smirnov <onlyjob@debian.org>
-           2023-2025      Canonical Ltd.
+           2023-2026      Canonical Ltd.
 License: GPL-3+
 
 Files: debian/patches/*
@@ -29,8 +28,15 @@ License: GPL-3+ or Apache-2.0
 Comment: patches can be licensed under the same terms as upstream.
 
 Files: vendor/golang.org/x/*
-       vendor/google.golang.org/protobuf/*
 Copyright: 2009-2022 The Go Authors
+License: BSD-3-clause-Google
+
+Files: vendor/github.com/aperturerobotics/protobuf-go-lite/*
+Copyright: 2024-2025 Aperture Robotics, LLC.
+           2024-2025 Christian Stewart <christian@aperture.us>
+           2021 PlanetScale Inc.
+           2013 The GoGo Authors
+           2018 The Go Authors
 License: BSD-3-clause-Google
 
 Files: vendor/github.com/godbus/dbus/v5/*
@@ -90,10 +96,6 @@ Files: vendor/github.com/opencontainers/cgroups/*
 Copyright: The containerd Authors
 License: Apache-2.0
 
-Files: vendor/github.com/opencontainers/cgroups/fs2/defaultpath.go
-Copyright: The containerd Authors
-License: Apache-2.0
-
 Files: vendor/github.com/opencontainers/cgroups/devices/devices_emulator.go
 Copyright: 2020 Aleksa Sarai <cyphar@cyphar.com>
            2020 SUSE LLC
@@ -129,9 +131,9 @@ Files: vendor/github.com/mrunalp/fileutils/*
 Copyright: 2014, Docker, Inc
 License: Apache-2.0
 
-Files: vendor/cyphar.com/go-pathrs
+Files: vendor/cyphar.com/go-pathrs/*
 Copyright: 2019-2025 SUSE LLC
-           2026, Aleksa Sarai <cyphar@cyphar.com>
+           2026 Aleksa Sarai <cyphar@cyphar.com>
 License: MPL-2.0
 
 License: Apache-2.0
@@ -155,16 +157,16 @@ License: GPL-3+
  it under the terms of the GNU General Public License as published by
  the Free Software Foundation, either version 3 of the License, or
  (at your option) any later version.
- ․
+ .
  This program is distributed in the hope that it will be useful,
  but WITHOUT ANY WARRANTY; without even the implied warranty of
  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  GNU General Public License for more details.
- ․
+ .
  The complete text of the GNU General Public License version 3
  can be found in "/usr/share/common-licenses/GPL-3".
 
-License: BSD-3-Clause-Google
+License: BSD-3-clause-Google
  Redistribution and use in source and binary forms, with or without
  modification, are permitted provided that the following conditions are
  met:

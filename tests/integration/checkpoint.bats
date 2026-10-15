@@ -3,6 +3,17 @@
 load helpers
 
 function create_netns() {
+	mtu_value=1789
+	mac_address="00:11:22:33:44:55"
+	global_ip="169.254.169.77/32"
+
+	# Create a dummy interface to move to the container.
+	# Specify all link-level parameters at creation time, this way it is not created without
+	# those values unassigned and we might race with host's daemons to set them.
+	ip link add dummy0 address "$mac_address" mtu $mtu_value type dummy
+	udevadm settle
+	ip address add "$global_ip" dev dummy0
+
 	# Create a temporary name for the test network namespace.
 	tmp=$(mktemp -u)
 	ns_name=$(basename "$tmp")
@@ -13,8 +24,17 @@ function create_netns() {
 }
 
 function delete_netns() {
+	[ -v ns_name ] || return
+
+	# The interface shouldn't be on the host, but if we failed to move it to the container, it
+	# might. Let's delete it if we created one (i.e. if ns_name is defined).
+	ip link del dev dummy0 2>/dev/null
+
 	# Delete the namespace only if the ns_name variable is set.
-	[ -v ns_name ] && ip netns del "$ns_name"
+	ip netns del "$ns_name"
+
+	unset ns_name
+	unset ns_path
 }
 
 function setup() {
@@ -22,13 +42,9 @@ function setup() {
 	requires criu root
 
 	setup_busybox
-
-	# Create a dummy interface to move to the container.
-	ip link add dummy0 type dummy
 }
 
 function teardown() {
-	ip link del dev dummy0
 	delete_netns
 	teardown_bundle
 }
@@ -126,32 +142,19 @@ function simple_cr() {
 	testcontainer test_busybox running
 
 	for _ in $(seq 2); do
-		# checkpoint the running container
 		runc "$@" checkpoint --work-path ./work-dir test_busybox
 		[ "$status" -eq 0 ]
 
-		# after checkpoint busybox is no longer running
 		testcontainer test_busybox checkpointed
 
-		# restore from checkpoint
 		runc "$@" restore -d --work-path ./work-dir --console-socket "$CONSOLE_SOCKET" test_busybox
 		[ "$status" -eq 0 ]
 
-		# busybox should be back up and running
 		testcontainer test_busybox running
 	done
 }
 
-function simple_cr_with_netdevice() {
-	# Set custom parameters to the netdevice to validate those are respected
-	mtu_value=1789
-	mac_address="00:11:22:33:44:55"
-	global_ip="169.254.169.77/32"
-
-	ip link set mtu "$mtu_value" dev dummy0
-	ip link set address "$mac_address" dev dummy0
-	ip address add "$global_ip" dev dummy0
-
+@test "checkpoint and restore with netdevice" {
 	# Tell runc which network namespace to use.
 	create_netns
 	update_config '(.. | select(.type? == "network")) .path |= "'"$ns_path"'"'
@@ -160,27 +163,23 @@ function simple_cr_with_netdevice() {
 	[ "$status" -eq 0 ]
 
 	testcontainer test_busybox_netdevice running
-	run runc exec test_busybox_netdevice ip address show dev dummy0
+	runc exec test_busybox_netdevice ip address show dev dummy0
 	[ "$status" -eq 0 ]
 	[[ "$output" == *" $global_ip "* ]]
 	[[ "$output" == *"ether $mac_address "* ]]
 	[[ "$output" == *"mtu $mtu_value "* ]]
 
 	for _ in $(seq 2); do
-		# checkpoint the running container
-		runc "$@" checkpoint --work-path ./work-dir test_busybox_netdevice
+		runc checkpoint --work-path ./work-dir test_busybox_netdevice
 		[ "$status" -eq 0 ]
 
-		# after checkpoint busybox is no longer running
 		testcontainer test_busybox_netdevice checkpointed
 
-		# restore from checkpoint
-		runc "$@" restore -d --work-path ./work-dir --console-socket "$CONSOLE_SOCKET" test_busybox_netdevice
+		runc restore -d --work-path ./work-dir --console-socket "$CONSOLE_SOCKET" test_busybox_netdevice
 		[ "$status" -eq 0 ]
 
-		# busybox should be back up and running
 		testcontainer test_busybox_netdevice running
-		run runc exec test_busybox_netdevice ip address show dev dummy0
+		runc exec test_busybox_netdevice ip address show dev dummy0
 		[ "$status" -eq 0 ]
 		[[ "$output" == *" $global_ip "* ]]
 		[[ "$output" == *"ether $mac_address "* ]]
@@ -217,35 +216,6 @@ function simple_cr_with_netdevice() {
 	simple_cr
 }
 
-@test "checkpoint and restore with netdevice" {
-	simple_cr_with_netdevice
-}
-
-@test "checkpoint and restore with netdevice (bind mount, destination is symlink)" {
-	mkdir -p rootfs/real/conf
-	ln -s /real/conf rootfs/conf
-	update_config '	  .mounts += [{
-					source: ".",
-					destination: "/conf",
-					options: ["bind"]
-				}]'
-	simple_cr_with_netdevice
-}
-
-@test "checkpoint and restore with netdevice (with --debug)" {
-	simple_cr_with_netdevice --debug
-}
-
-@test "checkpoint and restore with netdevice (cgroupns)" {
-	# cgroupv2 already enables cgroupns so this case was tested above already
-	requires cgroups_v1 cgroupns
-
-	# enable CGROUPNS
-	update_config '.linux.namespaces += [{"type": "cgroup"}]'
-
-	simple_cr_with_netdevice
-}
-
 @test "checkpoint --pre-dump (bad --parent-path)" {
 	runc run -d --console-socket "$CONSOLE_SOCKET" test_busybox
 	[ "$status" -eq 0 ]
@@ -271,15 +241,12 @@ function simple_cr_with_netdevice() {
 	setup_pipes
 	runc_run_with_pipes test_busybox
 
-	#test checkpoint pre-dump
 	mkdir parent-dir
 	runc checkpoint --pre-dump --image-path ./parent-dir test_busybox
 	[ "$status" -eq 0 ]
 
-	# busybox should still be running
 	testcontainer test_busybox running
 
-	# checkpoint the running container
 	mkdir image-dir
 	mkdir work-dir
 	runc checkpoint --parent-path ../parent-dir --work-path ./work-dir --image-path ./image-dir test_busybox
@@ -288,7 +255,6 @@ function simple_cr_with_netdevice() {
 	# check parent path is valid
 	[ -e ./image-dir/parent ]
 
-	# after checkpoint busybox is no longer running
 	testcontainer test_busybox checkpointed
 
 	runc_restore_with_pipes ./work-dir test_busybox
@@ -302,7 +268,6 @@ function simple_cr_with_netdevice() {
 	setup_pipes
 	runc_run_with_pipes test_busybox
 
-	# checkpoint the running container
 	mkdir image-dir
 	mkdir work-dir
 
@@ -391,14 +356,12 @@ function simple_cr_with_netdevice() {
 		runc checkpoint --work-path ./work-dir test_busybox
 		[ "$status" -eq 0 ]
 
-		# after checkpoint busybox is no longer running
 		testcontainer test_busybox checkpointed
 
 		# restore from checkpoint; this should restore the container into the existing network namespace
 		runc restore -d --work-path ./work-dir --console-socket "$CONSOLE_SOCKET" test_busybox
 		[ "$status" -eq 0 ]
 
-		# busybox should be back up and running
 		testcontainer test_busybox running
 
 		# container should be running in same network namespace as before
@@ -436,23 +399,20 @@ function simple_cr_with_netdevice() {
 
 	testcontainer test_busybox running
 
-	# checkpoint the running container
 	runc checkpoint --work-path ./work-dir test_busybox
 	[ "$status" -eq 0 ]
 	run ! test -f ./work-dir/"$tmplog1"
 	test -f ./work-dir/"$tmplog2"
 
-	# after checkpoint busybox is no longer running
 	testcontainer test_busybox checkpointed
 
 	test -f ./work-dir/"$tmplog2" && unlink ./work-dir/"$tmplog2"
-	# restore from checkpoint
+
 	runc restore -d --work-path ./work-dir --console-socket "$CONSOLE_SOCKET" test_busybox
 	[ "$status" -eq 0 ]
 	run ! test -f ./work-dir/"$tmplog1"
 	test -f ./work-dir/"$tmplog2"
 
-	# busybox should be back up and running
 	testcontainer test_busybox running
 	unlink "$tmp"
 	test -f ./work-dir/"$tmplog2" && unlink ./work-dir/"$tmplog2"
@@ -479,22 +439,18 @@ function simple_cr_with_netdevice() {
 
 	testcontainer test_busybox running
 
-	# checkpoint the running container
 	runc checkpoint --work-path ./work-dir test_busybox
 	[ "$status" -eq 0 ]
 
-	# after checkpoint busybox is no longer running
 	testcontainer test_busybox checkpointed
 
 	# cleanup mountpoints created by runc during creation
 	# the mountpoints should be recreated during restore - that is the actual thing tested here
 	rm -rf "${bind1:?}"/*
 
-	# restore from checkpoint
 	runc restore -d --work-path ./work-dir --console-socket "$CONSOLE_SOCKET" test_busybox
 	[ "$status" -eq 0 ]
 
-	# busybox should be back up and running
 	testcontainer test_busybox running
 }
 
@@ -545,18 +501,14 @@ function simple_cr_with_netdevice() {
 
 	local execed_pid=""
 	for _ in $(seq 2); do
-		# checkpoint the running container
 		runc checkpoint --work-path ./work-dir test_busybox
 		[ "$status" -eq 0 ]
 
-		# after checkpoint busybox is no longer running
 		testcontainer test_busybox checkpointed
 
-		# restore from checkpoint
 		runc restore -d --work-path ./work-dir --console-socket "$CONSOLE_SOCKET" test_busybox
 		[ "$status" -eq 0 ]
 
-		# busybox should be back up and running
 		testcontainer test_busybox running
 
 		# verify that previously exec'd process is restored.

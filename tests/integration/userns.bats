@@ -252,6 +252,7 @@ function teardown() {
 
 	# Create a dummy interface to move to the container.
 	ip link add dummy0 type dummy
+	udevadm settle
 
 	update_config ' .linux.netDevices |= {"dummy0": {} }
 		| .process.args |= ["ip", "address", "show", "dev", "dummy0"]'
@@ -261,8 +262,7 @@ function teardown() {
 
 	# The interface is virtual and should not exist because
 	# is deleted during the namespace cleanup.
-	run ip link del dummy0
-	[ "$status" -ne 0 ]
+	run ! ip link del dummy0
 }
 
 @test "userns with network interface renamed" {
@@ -270,6 +270,7 @@ function teardown() {
 
 	# Create a dummy interface to move to the container.
 	ip link add dummy0 type dummy
+	udevadm settle
 
 	update_config ' .linux.netDevices |= { "dummy0": { "name" : "ctr_dummy0" } }
 		| .process.args |= ["ip", "address", "show", "dev", "ctr_dummy0"]'
@@ -279,6 +280,5 @@ function teardown() {
 
 	# The interface is virtual and should not exist because
 	# is deleted during the namespace cleanup.
-	run ip link del dummy0
-	[ "$status" -ne 0 ]
+	run ! ip link del dummy0
 }
