@@ -13,7 +13,6 @@ package unix
 
 import (
 	"encoding/binary"
-	"slices"
 	"strconv"
 	"syscall"
 	"time"
@@ -418,7 +417,7 @@ func (sa *SockaddrUnix) sockaddr() (unsafe.Pointer, _Socklen, error) {
 		return nil, 0, EINVAL
 	}
 	sa.raw.Family = AF_UNIX
-	for i := range n {
+	for i := 0; i < n; i++ {
 		sa.raw.Path[i] = int8(name[i])
 	}
 	// length is family (uint16), name, NUL.
@@ -508,7 +507,7 @@ func (sa *SockaddrL2) sockaddr() (unsafe.Pointer, _Socklen, error) {
 	psm := (*[2]byte)(unsafe.Pointer(&sa.raw.Psm))
 	psm[0] = byte(sa.PSM)
 	psm[1] = byte(sa.PSM >> 8)
-	for i := range len(sa.Addr) {
+	for i := 0; i < len(sa.Addr); i++ {
 		sa.raw.Bdaddr[i] = sa.Addr[len(sa.Addr)-1-i]
 	}
 	cid := (*[2]byte)(unsafe.Pointer(&sa.raw.Cid))
@@ -590,11 +589,11 @@ func (sa *SockaddrCAN) sockaddr() (unsafe.Pointer, _Socklen, error) {
 	sa.raw.Family = AF_CAN
 	sa.raw.Ifindex = int32(sa.Ifindex)
 	rx := (*[4]byte)(unsafe.Pointer(&sa.RxID))
-	for i := range 4 {
+	for i := 0; i < 4; i++ {
 		sa.raw.Addr[i] = rx[i]
 	}
 	tx := (*[4]byte)(unsafe.Pointer(&sa.TxID))
-	for i := range 4 {
+	for i := 0; i < 4; i++ {
 		sa.raw.Addr[i+4] = tx[i]
 	}
 	return unsafe.Pointer(&sa.raw), SizeofSockaddrCAN, nil
@@ -619,11 +618,11 @@ func (sa *SockaddrCANJ1939) sockaddr() (unsafe.Pointer, _Socklen, error) {
 	sa.raw.Family = AF_CAN
 	sa.raw.Ifindex = int32(sa.Ifindex)
 	n := (*[8]byte)(unsafe.Pointer(&sa.Name))
-	for i := range 8 {
+	for i := 0; i < 8; i++ {
 		sa.raw.Addr[i] = n[i]
 	}
 	p := (*[4]byte)(unsafe.Pointer(&sa.PGN))
-	for i := range 4 {
+	for i := 0; i < 4; i++ {
 		sa.raw.Addr[i+8] = p[i]
 	}
 	sa.raw.Addr[12] = sa.Addr
@@ -801,7 +800,9 @@ func (sa *SockaddrPPPoE) sockaddr() (unsafe.Pointer, _Socklen, error) {
 	// one. The kernel expects SID to be in network byte order.
 	binary.BigEndian.PutUint16(sa.raw[6:8], sa.SID)
 	copy(sa.raw[8:14], sa.Remote)
-	clear(sa.raw[14 : 14+IFNAMSIZ])
+	for i := 14; i < 14+IFNAMSIZ; i++ {
+		sa.raw[i] = 0
+	}
 	copy(sa.raw[14:], sa.Dev)
 	return unsafe.Pointer(&sa.raw), SizeofSockaddrPPPoX, nil
 }
@@ -910,7 +911,7 @@ func (sa *SockaddrIUCV) sockaddr() (unsafe.Pointer, _Socklen, error) {
 	// These are EBCDIC encoded by the kernel, but we still need to pad them
 	// with blanks. Initializing with blanks allows the caller to feed in either
 	// a padded or an unpadded string.
-	for i := range 8 {
+	for i := 0; i < 8; i++ {
 		sa.raw.Nodeid[i] = ' '
 		sa.raw.User_id[i] = ' '
 		sa.raw.Name[i] = ' '
@@ -1147,7 +1148,7 @@ func anyToSockaddr(fd int, rsa *RawSockaddrAny) (Sockaddr, error) {
 		var user [8]byte
 		var name [8]byte
 
-		for i := range 8 {
+		for i := 0; i < 8; i++ {
 			user[i] = byte(pp.User_id[i])
 			name[i] = byte(pp.Name[i])
 		}
@@ -1172,11 +1173,11 @@ func anyToSockaddr(fd int, rsa *RawSockaddrAny) (Sockaddr, error) {
 				Ifindex: int(pp.Ifindex),
 			}
 			name := (*[8]byte)(unsafe.Pointer(&sa.Name))
-			for i := range 8 {
+			for i := 0; i < 8; i++ {
 				name[i] = pp.Addr[i]
 			}
 			pgn := (*[4]byte)(unsafe.Pointer(&sa.PGN))
-			for i := range 4 {
+			for i := 0; i < 4; i++ {
 				pgn[i] = pp.Addr[i+8]
 			}
 			addr := (*[1]byte)(unsafe.Pointer(&sa.Addr))
@@ -1187,11 +1188,11 @@ func anyToSockaddr(fd int, rsa *RawSockaddrAny) (Sockaddr, error) {
 				Ifindex: int(pp.Ifindex),
 			}
 			rx := (*[4]byte)(unsafe.Pointer(&sa.RxID))
-			for i := range 4 {
+			for i := 0; i < 4; i++ {
 				rx[i] = pp.Addr[i]
 			}
 			tx := (*[4]byte)(unsafe.Pointer(&sa.TxID))
-			for i := range 4 {
+			for i := 0; i < 4; i++ {
 				tx[i] = pp.Addr[i+4]
 			}
 			return sa, nil
@@ -2150,10 +2151,33 @@ func Signalfd(fd int, sigmask *Sigset_t, flags int) (newfd int, err error) {
 //sys	exitThread(code int) (err error) = SYS_EXIT
 //sys	readv(fd int, iovs []Iovec) (n int, err error) = SYS_READV
 //sys	writev(fd int, iovs []Iovec) (n int, err error) = SYS_WRITEV
-//sys	preadvSyscall(fd int, iovs []Iovec, offs_l uintptr, offs_h uintptr) (n int, err error) = SYS_PREADV
-//sys	pwritevSyscall(fd int, iovs []Iovec, offs_l uintptr, offs_h uintptr) (n int, err error) = SYS_PWRITEV
-//sys	preadv2Syscall(fd int, iovs []Iovec, offs_l uintptr, offs_h uintptr, flags int) (n int, err error) = SYS_PREADV2
-//sys	pwritev2Syscall(fd int, iovs []Iovec, offs_l uintptr, offs_h uintptr, flags int) (n int, err error) = SYS_PWRITEV2
+//sys	preadv(fd int, iovs []Iovec, offs_l uintptr, offs_h uintptr) (n int, err error) = SYS_PREADV
+//sys	pwritev(fd int, iovs []Iovec, offs_l uintptr, offs_h uintptr) (n int, err error) = SYS_PWRITEV
+//sys	preadv2(fd int, iovs []Iovec, offs_l uintptr, offs_h uintptr, flags int) (n int, err error) = SYS_PREADV2
+//sys	pwritev2(fd int, iovs []Iovec, offs_l uintptr, offs_h uintptr, flags int) (n int, err error) = SYS_PWRITEV2
+
+// minIovec is the size of the small initial allocation used by
+// Readv, Writev, etc.
+//
+// This small allocation gets stack allocated, which lets the
+// common use case of len(iovs) <= minIovs avoid more expensive
+// heap allocations.
+const minIovec = 8
+
+// appendBytes converts bs to Iovecs and appends them to vecs.
+func appendBytes(vecs []Iovec, bs [][]byte) []Iovec {
+	for _, b := range bs {
+		var v Iovec
+		v.SetLen(len(b))
+		if len(b) > 0 {
+			v.Base = &b[0]
+		} else {
+			v.Base = (*byte)(unsafe.Pointer(&_zero))
+		}
+		vecs = append(vecs, v)
+	}
+	return vecs
+}
 
 // offs2lohi splits offs into its low and high order bits.
 func offs2lohi(offs int64) (lo, hi uintptr) {
@@ -2161,23 +2185,72 @@ func offs2lohi(offs int64) (lo, hi uintptr) {
 	return uintptr(offs), uintptr(uint64(offs) >> (longBits - 1) >> 1) // two shifts to avoid false positive in vet
 }
 
-func preadv(fd int, iovecs []Iovec, offset int64) (n int, err error) {
+func Readv(fd int, iovs [][]byte) (n int, err error) {
+	iovecs := make([]Iovec, 0, minIovec)
+	iovecs = appendBytes(iovecs, iovs)
+	n, err = readv(fd, iovecs)
+	readvRacedetect(iovecs, n, err)
+	return n, err
+}
+
+func Preadv(fd int, iovs [][]byte, offset int64) (n int, err error) {
+	iovecs := make([]Iovec, 0, minIovec)
+	iovecs = appendBytes(iovecs, iovs)
 	lo, hi := offs2lohi(offset)
-	return preadvSyscall(fd, iovecs, lo, hi)
+	n, err = preadv(fd, iovecs, lo, hi)
+	readvRacedetect(iovecs, n, err)
+	return n, err
 }
 
 func Preadv2(fd int, iovs [][]byte, offset int64, flags int) (n int, err error) {
 	iovecs := make([]Iovec, 0, minIovec)
 	iovecs = appendBytes(iovecs, iovs)
 	lo, hi := offs2lohi(offset)
-	n, err = preadv2Syscall(fd, iovecs, lo, hi, flags)
-	readvRaceDetect(iovecs, n, err)
+	n, err = preadv2(fd, iovecs, lo, hi, flags)
+	readvRacedetect(iovecs, n, err)
 	return n, err
 }
 
-func pwritev(fd int, iovecs []Iovec, offset int64) (n int, err error) {
+func readvRacedetect(iovecs []Iovec, n int, err error) {
+	if !raceenabled {
+		return
+	}
+	for i := 0; n > 0 && i < len(iovecs); i++ {
+		m := int(iovecs[i].Len)
+		if m > n {
+			m = n
+		}
+		n -= m
+		if m > 0 {
+			raceWriteRange(unsafe.Pointer(iovecs[i].Base), m)
+		}
+	}
+	if err == nil {
+		raceAcquire(unsafe.Pointer(&ioSync))
+	}
+}
+
+func Writev(fd int, iovs [][]byte) (n int, err error) {
+	iovecs := make([]Iovec, 0, minIovec)
+	iovecs = appendBytes(iovecs, iovs)
+	if raceenabled {
+		raceReleaseMerge(unsafe.Pointer(&ioSync))
+	}
+	n, err = writev(fd, iovecs)
+	writevRacedetect(iovecs, n)
+	return n, err
+}
+
+func Pwritev(fd int, iovs [][]byte, offset int64) (n int, err error) {
+	iovecs := make([]Iovec, 0, minIovec)
+	iovecs = appendBytes(iovecs, iovs)
+	if raceenabled {
+		raceReleaseMerge(unsafe.Pointer(&ioSync))
+	}
 	lo, hi := offs2lohi(offset)
-	return pwritevSyscall(fd, iovecs, lo, hi)
+	n, err = pwritev(fd, iovecs, lo, hi)
+	writevRacedetect(iovecs, n)
+	return n, err
 }
 
 func Pwritev2(fd int, iovs [][]byte, offset int64, flags int) (n int, err error) {
@@ -2187,9 +2260,25 @@ func Pwritev2(fd int, iovs [][]byte, offset int64, flags int) (n int, err error)
 		raceReleaseMerge(unsafe.Pointer(&ioSync))
 	}
 	lo, hi := offs2lohi(offset)
-	n, err = pwritev2Syscall(fd, iovecs, lo, hi, flags)
-	writevRaceDetect(iovecs, n)
+	n, err = pwritev2(fd, iovecs, lo, hi, flags)
+	writevRacedetect(iovecs, n)
 	return n, err
+}
+
+func writevRacedetect(iovecs []Iovec, n int) {
+	if !raceenabled {
+		return
+	}
+	for i := 0; n > 0 && i < len(iovecs); i++ {
+		m := int(iovecs[i].Len)
+		if m > n {
+			m = n
+		}
+		n -= m
+		if m > 0 {
+			raceReadRange(unsafe.Pointer(iovecs[i].Base), m)
+		}
+	}
 }
 
 // mmap varies by architecture; see syscall_linux_*.go.
@@ -2231,7 +2320,12 @@ func isGroupMember(gid int) bool {
 		return false
 	}
 
-	return slices.Contains(groups, gid)
+	for _, g := range groups {
+		if g == gid {
+			return true
+		}
+	}
+	return false
 }
 
 func isCapDacOverrideSet() bool {
@@ -2561,13 +2655,3 @@ func SchedGetAttr(pid int, flags uint) (*SchedAttr, error) {
 
 //sys	Cachestat(fd uint, crange *CachestatRange, cstat *Cachestat_t, flags uint) (err error)
 //sys	Mseal(b []byte, flags uint) (err error)
-
-//sys	setMemPolicy(mode int, mask unsafe.Pointer, size uintptr) (err error) = SYS_SET_MEMPOLICY
-
-func SetMemPolicy(mode int, mask *CPUSet) error {
-	return setMemPolicy(mode, unsafe.Pointer(mask), _CPU_SETSIZE)
-}
-
-func SetMemPolicyDynamic(mode int, mask CPUSetDynamic) error {
-	return setMemPolicy(mode, mask.pointer(), mask.size())
-}

@@ -1,6 +1,3 @@
-// runc is a command line client for running applications packaged according to
-// the Open Container Initiative (OCI) format and is a compliant implementation
-// of the Open Container Initiative specification.
 package main
 
 import (
@@ -51,10 +48,6 @@ func printVersion(c *cli.Context) {
 	if major+minor+micro > 0 {
 		fmt.Fprintf(w, "libseccomp: %d.%d.%d\n", major, minor, micro)
 	}
-
-	if v := pathrsVersionString(); v != "" {
-		fmt.Fprintf(w, "libpathrs: %s\n", v)
-	}
 }
 
 const (
@@ -62,8 +55,8 @@ const (
 	usage      = `Open Container Initiative runtime
 
 runc is a command line client for running applications packaged according to
-the Open Container Initiative (OCI) format and is a compliant implementation of
-the Open Container Initiative specification.
+the Open Container Initiative (OCI) format and is a compliant implementation of the
+Open Container Initiative specification.
 
 runc integrates well with existing process supervisors to provide a production
 container runtime environment for applications. It can be used with your
@@ -120,6 +113,11 @@ func main() {
 			Value: root,
 			Usage: "root directory for storage of container state (this should be located in tmpfs)",
 		},
+		cli.StringFlag{
+			Name:   "criu",
+			Usage:  "(obsoleted; do not use)",
+			Hidden: true,
+		},
 		cli.BoolFlag{
 			Name:  "systemd-cgroup",
 			Usage: "enable systemd cgroup support, expects cgroupsPath to be of form \"slice:prefix:name\" for e.g. \"system.slice:runc:434234\"",
@@ -165,6 +163,10 @@ func main() {
 		}
 		if err := reviseRootDir(context); err != nil {
 			return err
+		}
+		// TODO: remove this in runc 1.3.0.
+		if context.IsSet("criu") {
+			fmt.Fprintln(os.Stderr, "WARNING: --criu ignored (criu binary from $PATH is used); do not use")
 		}
 
 		return configLogrus(context)

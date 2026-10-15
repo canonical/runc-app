@@ -25,8 +25,6 @@ import (
 
 	"github.com/cyphar/filepath-securejoin/pathrs-lite"
 	"golang.org/x/sys/unix"
-
-	"github.com/opencontainers/runc/internal/linux"
 )
 
 // OpenInRoot opens the given path inside the root with the provided flags. It
@@ -61,7 +59,7 @@ func CreateInRoot(root *os.File, subpath string, flags int, fileMode uint32) (*o
 	// trailing symlinks, so this is safe to do. libpathrs's Root::create_file
 	// works the same way.
 	flags |= unix.O_CREAT | unix.O_NOFOLLOW
-	fd, err := linux.Openat(int(dirFd.Fd()), filename, flags, fileMode)
+	fd, err := unix.Openat(int(dirFd.Fd()), filename, flags, fileMode)
 	if err != nil {
 		return nil, err
 	}

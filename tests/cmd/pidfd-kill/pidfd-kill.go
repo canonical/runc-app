@@ -1,7 +1,3 @@
-// pidfd-kill is a command-line tool to send signals to processes using pidfds
-// passed through a unix socket.
-//
-// This tool is only intended to be used within runc's integration tests.
 package main
 
 import (
@@ -14,7 +10,7 @@ import (
 	"github.com/urfave/cli"
 	"golang.org/x/sys/unix"
 
-	"github.com/opencontainers/runc/internal/cmsg"
+	"github.com/opencontainers/runc/libcontainer/utils"
 )
 
 const (
@@ -103,11 +99,16 @@ func recvPidfd(socketFile string) (*os.File, error) {
 	}
 	defer conn.Close()
 
-	socket, err := conn.(*net.UnixConn).File()
+	unixconn, ok := conn.(*net.UnixConn)
+	if !ok {
+		return nil, errors.New("failed to cast to unixconn")
+	}
+
+	socket, err := unixconn.File()
 	if err != nil {
 		return nil, err
 	}
 	defer socket.Close()
 
-	return cmsg.RecvFile(socket)
+	return utils.RecvFile(socket)
 }

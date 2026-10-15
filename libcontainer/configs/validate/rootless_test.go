@@ -154,7 +154,8 @@ func BenchmarkRootlessEUIDMount(b *testing.B) {
 		},
 	}
 
-	for b.Loop() {
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
 		err := rootlessEUIDMount(config)
 		if err != nil {
 			b.Fatal(err)

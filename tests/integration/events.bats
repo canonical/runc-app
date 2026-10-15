@@ -13,8 +13,9 @@ function teardown() {
 # This needs to be placed at the top of the bats file to work around
 # a shellcheck bug. See <https://github.com/koalaman/shellcheck/issues/2873>.
 function test_events() {
-	[ $EUID -ne 0 ] && requires rootless_cgroup
-	set_cgroups_path
+	# XXX: currently cgroups require root containers.
+	requires root
+	init_cgroup_paths
 
 	local status interval retry_every=1
 	if [ $# -eq 2 ]; then
@@ -44,9 +45,11 @@ function test_events() {
 }
 
 @test "events --stats" {
-	[ $EUID -ne 0 ] && requires rootless_cgroup
+	# XXX: currently cgroups require root containers.
+	requires root
 	init_cgroup_paths
 
+	# run busybox detached
 	runc run -d --console-socket "$CONSOLE_SOCKET" test_busybox
 	[ "$status" -eq 0 ]
 
@@ -58,7 +61,6 @@ function test_events() {
 }
 
 @test "events --stats with psi data" {
-	# XXX: CPU PSI avg data only available to root.
 	requires root cgroups_v2 psi
 	init_cgroup_paths
 
@@ -86,20 +88,6 @@ function test_events() {
 	done
 }
 
-# See https://github.com/opencontainers/cgroups/pull/24
-@test "events --stats with hugetlb" {
-	requires cgroups_v2 cgroups_hugetlb
-	init_cgroup_paths
-
-	runc run -d --console-socket "$CONSOLE_SOCKET" test_busybox
-	[ "$status" -eq 0 ]
-
-	runc events --stats test_busybox
-	[ "$status" -eq 0 ]
-	# Ensure hugetlb node is present.
-	jq -e '.data.hugetlb // empty' <<<"${lines[0]}"
-}
-
 @test "events --interval default" {
 	test_events
 }
@@ -113,13 +101,14 @@ function test_events() {
 }
 
 @test "events oom" {
-	# XXX: oom is not triggered for rootless containers.
+	# XXX: currently cgroups require root containers.
 	requires root cgroups_swap
 	init_cgroup_paths
 
 	# we need the container to hit OOM, so disable swap
 	update_config '(.. | select(.resources? != null)) .resources.memory |= {"limit": 33554432, "swap": 33554432}'
 
+	# run busybox detached
 	runc run -d --console-socket "$CONSOLE_SOCKET" test_busybox
 	[ "$status" -eq 0 ]
 

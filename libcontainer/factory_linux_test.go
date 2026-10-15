@@ -81,12 +81,12 @@ func TestFactoryLoadContainer(t *testing.T) {
 	}
 }
 
-func marshal(path string, v any) error {
+func marshal(path string, v interface{}) error {
 	f, err := os.Create(path)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer f.Close() //nolint: errcheck
 	return utils.WriteJSON(f, v)
 }
 

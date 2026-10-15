@@ -3,8 +3,6 @@
 # Supports Fedora and EL-based distributions.
 set -eux -o pipefail
 
-: "${LIBPATHRS_VERSION:=0.2.5}"
-
 # BATS_VERSION is only consumed for the EL8 platform as its bats package is too old.
 : "${BATS_VERSION:=v1.12.0}"
 
@@ -34,7 +32,7 @@ platform:el9 | platform:el10)
 esac
 
 # Install common packages
-RPMS=(cargo container-selinux fuse-sshfs git-core glibc-static golang iptables jq libseccomp-devel lld make policycoreutils wget)
+RPMS=(container-selinux fuse-sshfs git-core glibc-static golang iptables jq libseccomp-devel lld make policycoreutils wget)
 # Work around dnf mirror failures by retrying a few times.
 for i in $(seq 0 2); do
 	sleep "$i"
@@ -78,9 +76,6 @@ fi
 
 # Clean up DNF
 dnf clean all
-
-# Install libpathrs
-"$SCRIPTDIR"/build-libpathrs.sh "$LIBPATHRS_VERSION" /usr
 
 # Setup rootless user.
 "$SCRIPTDIR"/setup_rootless.sh

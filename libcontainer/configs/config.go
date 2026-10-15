@@ -95,72 +95,69 @@ type Syscall struct {
 // Config defines configuration options for executing a process inside a contained environment.
 type Config struct {
 	// NoPivotRoot will use MS_MOVE and a chroot to jail the process into the container's rootfs
-	// This is a common option when the container is running in ramdisk.
-	NoPivotRoot bool `json:"no_pivot_root,omitempty"`
+	// This is a common option when the container is running in ramdisk
+	NoPivotRoot bool `json:"no_pivot_root"`
 
 	// ParentDeathSignal specifies the signal that is sent to the container's process in the case
 	// that the parent process dies.
-	ParentDeathSignal int `json:"parent_death_signal,omitempty"`
+	ParentDeathSignal int `json:"parent_death_signal"`
 
 	// Path to a directory containing the container's root filesystem.
 	Rootfs string `json:"rootfs"`
 
 	// Umask is the umask to use inside of the container.
-	Umask *uint32 `json:"umask,omitempty"`
+	Umask *uint32 `json:"umask"`
 
 	// Readonlyfs will remount the container's rootfs as readonly where only externally mounted
 	// bind mounts are writtable.
-	Readonlyfs bool `json:"readonlyfs,omitempty"`
+	Readonlyfs bool `json:"readonlyfs"`
 
 	// Specifies the mount propagation flags to be applied to /.
-	RootPropagation int `json:"rootPropagation,omitempty"`
+	RootPropagation int `json:"rootPropagation"`
 
 	// Mounts specify additional source and destination paths that will be mounted inside the container's
-	// rootfs and mount namespace if specified.
+	// rootfs and mount namespace if specified
 	Mounts []*Mount `json:"mounts"`
 
 	// The device nodes that should be automatically created within the container upon container start.  Note, make sure that the node is marked as allowed in the cgroup as well!
 	Devices []*devices.Device `json:"devices"`
 
-	// NetDevices are key-value pairs, keyed by network device name, moved to the container's network namespace.
-	NetDevices map[string]*LinuxNetDevice `json:"netDevices,omitempty"`
+	MountLabel string `json:"mount_label"`
 
-	MountLabel string `json:"mount_label,omitempty"`
+	// Hostname optionally sets the container's hostname if provided
+	Hostname string `json:"hostname"`
 
-	// Hostname optionally sets the container's hostname if provided.
-	Hostname string `json:"hostname,omitempty"`
-
-	// Domainname optionally sets the container's domainname if provided.
-	Domainname string `json:"domainname,omitempty"`
+	// Domainname optionally sets the container's domainname if provided
+	Domainname string `json:"domainname"`
 
 	// Namespaces specifies the container's namespaces that it should setup when cloning the init process
-	// If a namespace is not provided that namespace is shared from the container's parent process.
+	// If a namespace is not provided that namespace is shared from the container's parent process
 	Namespaces Namespaces `json:"namespaces"`
 
 	// Capabilities specify the capabilities to keep when executing the process inside the container
-	// All capabilities not specified will be dropped from the processes capability mask.
-	Capabilities *Capabilities `json:"capabilities,omitempty"`
+	// All capabilities not specified will be dropped from the processes capability mask
+	Capabilities *Capabilities `json:"capabilities"`
 
-	// Networks specifies the container's network setup to be created.
-	Networks []*Network `json:"networks,omitempty"`
+	// Networks specifies the container's network setup to be created
+	Networks []*Network `json:"networks"`
 
-	// Routes can be specified to create entries in the route table as the container is started.
-	Routes []*Route `json:"routes,omitempty"`
+	// Routes can be specified to create entries in the route table as the container is started
+	Routes []*Route `json:"routes"`
 
 	// Cgroups specifies specific cgroup settings for the various subsystems that the container is
 	// placed into to limit the resources the container has available.
 	Cgroups *cgroups.Cgroup `json:"cgroups"`
 
 	// AppArmorProfile specifies the profile to apply to the process running in the container and is
-	// change at the time the process is executed.
+	// change at the time the process is execed
 	AppArmorProfile string `json:"apparmor_profile,omitempty"`
 
 	// ProcessLabel specifies the label to apply to the process running in the container.  It is
-	// commonly used by selinux.
+	// commonly used by selinux
 	ProcessLabel string `json:"process_label,omitempty"`
 
 	// Rlimits specifies the resource limits, such as max open files, to set in the container
-	// If Rlimits are not set, the container will inherit rlimits from the parent process.
+	// If Rlimits are not set, the container will inherit rlimits from the parent process
 	Rlimits []Rlimit `json:"rlimits,omitempty"`
 
 	// OomScoreAdj specifies the adjustment to be made by the kernel when calculating oom scores
@@ -170,35 +167,35 @@ type Config struct {
 	// More information about kernel oom score calculation here: https://lwn.net/Articles/317814/
 	OomScoreAdj *int `json:"oom_score_adj,omitempty"`
 
-	// UIDMappings is an array of User ID mappings for User Namespaces.
-	UIDMappings []IDMap `json:"uid_mappings,omitempty"`
+	// UIDMappings is an array of User ID mappings for User Namespaces
+	UIDMappings []IDMap `json:"uid_mappings"`
 
-	// GIDMappings is an array of Group ID mappings for User Namespaces.
-	GIDMappings []IDMap `json:"gid_mappings,omitempty"`
+	// GIDMappings is an array of Group ID mappings for User Namespaces
+	GIDMappings []IDMap `json:"gid_mappings"`
 
 	// MaskPaths specifies paths within the container's rootfs to mask over with a bind
 	// mount pointing to /dev/null as to prevent reads of the file.
-	MaskPaths []string `json:"mask_paths,omitempty"`
+	MaskPaths []string `json:"mask_paths"`
 
 	// ReadonlyPaths specifies paths within the container's rootfs to remount as read-only
 	// so that these files prevent any writes.
-	ReadonlyPaths []string `json:"readonly_paths,omitempty"`
+	ReadonlyPaths []string `json:"readonly_paths"`
 
 	// Sysctl is a map of properties and their values. It is the equivalent of using
 	// sysctl -w my.property.name value in Linux.
-	Sysctl map[string]string `json:"sysctl,omitempty"`
+	Sysctl map[string]string `json:"sysctl"`
 
 	// Seccomp allows actions to be taken whenever a syscall is made within the container.
 	// A number of rules are given, each having an action to be taken if a syscall matches it.
 	// A default action to be taken if no rules match is also given.
-	Seccomp *Seccomp `json:"seccomp,omitempty"`
+	Seccomp *Seccomp `json:"seccomp"`
 
 	// NoNewPrivileges controls whether processes in the container can gain additional privileges.
 	NoNewPrivileges bool `json:"no_new_privileges,omitempty"`
 
 	// Hooks are a collection of actions to perform at various container lifecycle events.
 	// CommandHooks are serialized to JSON, but other hooks are not.
-	Hooks Hooks `json:"Hooks,omitempty"`
+	Hooks Hooks
 
 	// Version is the version of opencontainer specification that is supported.
 	Version string `json:"version"`
@@ -208,14 +205,11 @@ type Config struct {
 
 	// NoNewKeyring will not allocated a new session keyring for the container.  It will use the
 	// callers keyring in this case.
-	NoNewKeyring bool `json:"no_new_keyring,omitempty"`
+	NoNewKeyring bool `json:"no_new_keyring"`
 
 	// IntelRdt specifies settings for Intel RDT group that the container is placed into
 	// to limit the resources (e.g., L3 cache, memory bandwidth) the container has available
 	IntelRdt *IntelRdt `json:"intel_rdt,omitempty"`
-
-	// MemoryPolicy specifies NUMA memory policy for the container.
-	MemoryPolicy *LinuxMemoryPolicy `json:"memory_policy,omitempty"`
 
 	// RootlessEUID is set when the runc was launched with non-zero EUID.
 	// Note that RootlessEUID is set to false when launched with EUID=0 in userns.
@@ -308,8 +302,7 @@ type CPUAffinity struct {
 	Initial, Final *unix.CPUSet
 }
 
-// ToCPUSet parses a string in list format into a unix.CPUSet, e.g. "0-3,5,7-9".
-func ToCPUSet(str string) (*unix.CPUSet, error) {
+func toCPUSet(str string) (*unix.CPUSet, error) {
 	if str == "" {
 		return nil, nil
 	}
@@ -329,7 +322,7 @@ func ToCPUSet(str string) (*unix.CPUSet, error) {
 		return int(ret), nil
 	}
 
-	for r := range strings.SplitSeq(str, ",") {
+	for _, r := range strings.Split(str, ",") {
 		// Allow extra spaces around.
 		r = strings.TrimSpace(r)
 		// Allow empty elements (extra commas).
@@ -360,7 +353,7 @@ func ToCPUSet(str string) (*unix.CPUSet, error) {
 		}
 	}
 	if s.Count() == 0 {
-		return nil, fmt.Errorf("no members found in set %q", str)
+		return nil, fmt.Errorf("no CPUs found in %q", str)
 	}
 
 	return s, nil
@@ -371,11 +364,11 @@ func ConvertCPUAffinity(sa *specs.CPUAffinity) (*CPUAffinity, error) {
 	if sa == nil {
 		return nil, nil
 	}
-	initial, err := ToCPUSet(sa.Initial)
+	initial, err := toCPUSet(sa.Initial)
 	if err != nil {
 		return nil, fmt.Errorf("bad CPUAffinity.Initial: %w", err)
 	}
-	final, err := ToCPUSet(sa.Final)
+	final, err := toCPUSet(sa.Final)
 	if err != nil {
 		return nil, fmt.Errorf("bad CPUAffinity.Final: %w", err)
 	}
@@ -455,15 +448,26 @@ func KnownHookNames() []string {
 
 type Capabilities struct {
 	// Bounding is the set of capabilities checked by the kernel.
-	Bounding []string `json:"Bounding,omitempty"`
+	Bounding []string
 	// Effective is the set of capabilities checked by the kernel.
-	Effective []string `json:"Effective,omitempty"`
+	Effective []string
 	// Inheritable is the capabilities preserved across execve.
-	Inheritable []string `json:"Inheritable,omitempty"`
+	Inheritable []string
 	// Permitted is the limiting superset for effective capabilities.
-	Permitted []string `json:"Permitted,omitempty"`
+	Permitted []string
 	// Ambient is the ambient set of capabilities that are kept.
-	Ambient []string `json:"Ambient,omitempty"`
+	Ambient []string
+}
+
+// Deprecated: use [Hooks.Run] instead.
+func (hooks HookList) RunHooks(state *specs.State) error {
+	for i, h := range hooks {
+		if err := h.Run(state); err != nil {
+			return fmt.Errorf("error running hook #%d: %w", i, err)
+		}
+	}
+
+	return nil
 }
 
 func (hooks *Hooks) UnmarshalJSON(b []byte) error {
@@ -502,7 +506,7 @@ func (hooks *Hooks) MarshalJSON() ([]byte, error) {
 		return serializableHooks
 	}
 
-	return json.Marshal(map[string]any{
+	return json.Marshal(map[string]interface{}{
 		"prestart":        serialize((*hooks)[Prestart]),
 		"createRuntime":   serialize((*hooks)[CreateRuntime]),
 		"createContainer": serialize((*hooks)[CreateContainer]),

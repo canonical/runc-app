@@ -16,7 +16,6 @@ type Protinfo struct {
 	ProxyArpWiFi  bool
 	Isolated      bool
 	NeighSuppress bool
-	VlanTunnel    bool
 }
 
 // String returns a list of enabled flags
@@ -55,9 +54,6 @@ func (prot *Protinfo) String() string {
 	}
 	if prot.NeighSuppress {
 		boolStrings = append(boolStrings, "NeighSuppress")
-	}
-	if prot.VlanTunnel {
-		boolStrings = append(boolStrings, "VlanTunnel")
 	}
 	return strings.Join(boolStrings, " ")
 }

@@ -32,10 +32,6 @@ func (m *mockCgroupManager) Apply(pid int) error {
 	return nil
 }
 
-func (m *mockCgroupManager) AddPid(_ string, _ int) error {
-	return nil
-}
-
 func (m *mockCgroupManager) Set(_ *cgroups.Resources) error {
 	return nil
 }

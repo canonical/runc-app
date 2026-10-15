@@ -11,17 +11,9 @@ GIT_BRANCH := $(shell git rev-parse --abbrev-ref HEAD 2>/dev/null)
 GIT_BRANCH_CLEAN := $(shell echo $(GIT_BRANCH) | sed -e "s/[^[:alnum:]]/-/g")
 RUNC_IMAGE := runc_dev$(if $(GIT_BRANCH_CLEAN),:$(GIT_BRANCH_CLEAN))
 PROJECT := github.com/opencontainers/runc
-BUILDTAGS := seccomp urfave_cli_no_docs libpathrs
-# Tags prefixed with - in RUNC_BUILDTAGS are removed from BUILDTAGS; others are added.
-RUNC_BUILDTAGS ?=
-BUILDTAGS_REMOVE := $(patsubst -%,%,$(filter -%,$(RUNC_BUILDTAGS)))
-BUILDTAGS_ADD    := $(filter-out -%,$(RUNC_BUILDTAGS))
-BUILDTAGS := $(filter-out $(BUILDTAGS_REMOVE),$(BUILDTAGS)) $(BUILDTAGS_ADD)
-# TODO: remove EXTRA_BUILDTAGS for runc 1.6.
-ifdef EXTRA_BUILDTAGS
-  $(warning EXTRA_BUILDTAGS is deprecated; use RUNC_BUILDTAGS instead)
-  BUILDTAGS += $(EXTRA_BUILDTAGS)
-endif
+EXTRA_BUILDTAGS :=
+BUILDTAGS := seccomp urfave_cli_no_docs
+BUILDTAGS += $(EXTRA_BUILDTAGS)
 
 COMMIT := $(shell git describe --dirty --long --always)
 EXTRA_VERSION :=
@@ -39,7 +31,7 @@ TRIMPATH := -trimpath
 
 GO_BUILDMODE :=
 # Enable dynamic PIE executables on supported platforms.
-ifneq (,$(filter $(GOARCH),386 amd64 arm arm64 loong64 ppc64le riscv64 s390x))
+ifneq (,$(filter $(GOARCH),386 amd64 arm arm64 ppc64le riscv64 s390x))
 	ifeq (,$(findstring -race,$(EXTRA_FLAGS)))
 		GO_BUILDMODE := "-buildmode=pie"
 	endif
@@ -85,13 +77,17 @@ runc-bin:
 	$(GO_BUILD) -o runc .
 
 .PHONY: all
-all: runc
+all: runc memfd-bind
+
+.PHONY: memfd-bind
+memfd-bind:
+	$(GO_BUILD) -o contrib/cmd/$@/$@ ./contrib/cmd/$@
 
 TESTBINDIR := tests/cmd/_bin
 $(TESTBINDIR):
 	mkdir $(TESTBINDIR)
 
-TESTBINS := recvtty sd-helper seccompagent fs-idmap pidfd-kill remap-rootfs key_label
+TESTBINS := recvtty sd-helper seccompagent fs-idmap pidfd-kill remap-rootfs
 .PHONY: test-binaries $(TESTBINS)
 test-binaries: $(TESTBINS)
 $(TESTBINS): $(TESTBINDIR)
@@ -100,6 +96,7 @@ $(TESTBINS): $(TESTBINDIR)
 .PHONY: clean
 clean:
 	rm -f runc runc-*
+	rm -f contrib/cmd/memfd-bind/memfd-bind
 	rm -fr $(TESTBINDIR)
 	sudo rm -rf release
 	rm -rf man/man8

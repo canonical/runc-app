@@ -14,14 +14,6 @@
  * limitations under the License.
  */
 
-// recvtty is a sample implementation of the consumer side of the
-// --console-socket interface for runc. It supports forwarding console events
-// to and from the container process, as well as acting like a /dev/null
-// black-hole.
-//
-// This tool is only really intended to be used within runc's integration
-// tests, but can be used as an example of how the --console-socket protocol
-// works.
 package main
 
 import (
@@ -34,9 +26,8 @@ import (
 	"sync"
 
 	"github.com/containerd/console"
+	"github.com/opencontainers/runc/libcontainer/utils"
 	"github.com/urfave/cli"
-
-	"github.com/opencontainers/runc/internal/cmsg"
 )
 
 // version will be populated by the Makefile, read from
@@ -94,14 +85,20 @@ func handleSingle(path string, noStdin bool) error {
 	// Close ln, to allow for other instances to take over.
 	ln.Close()
 
-	socket, err := conn.(*net.UnixConn).File()
+	// Get the fd of the connection.
+	unixconn, ok := conn.(*net.UnixConn)
+	if !ok {
+		return errors.New("failed to cast to unixconn")
+	}
+
+	socket, err := unixconn.File()
 	if err != nil {
 		return err
 	}
 	defer socket.Close()
 
 	// Get the master file descriptor from runC.
-	master, err := cmsg.RecvFile(socket)
+	master, err := utils.RecvFile(socket)
 	if err != nil {
 		return err
 	}
@@ -118,13 +115,17 @@ func handleSingle(path string, noStdin bool) error {
 		wg            sync.WaitGroup
 		inErr, outErr error
 	)
-	wg.Go(func() {
+	wg.Add(1)
+	go func() {
 		_, outErr = io.Copy(os.Stdout, c)
-	})
+		wg.Done()
+	}()
 	if !noStdin {
-		wg.Go(func() {
+		wg.Add(1)
+		go func() {
 			_, inErr = io.Copy(c, os.Stdin)
-		})
+			wg.Done()
+		}()
 	}
 
 	// Only close the master fd once we've stopped copying.
@@ -157,14 +158,20 @@ func handleNull(path string) error {
 			// Don't leave references lying around.
 			defer conn.Close()
 
-			socket, err := conn.(*net.UnixConn).File()
+			// Get the fd of the connection.
+			unixconn, ok := conn.(*net.UnixConn)
+			if !ok {
+				return
+			}
+
+			socket, err := unixconn.File()
 			if err != nil {
 				return
 			}
 			defer socket.Close()
 
 			// Get the master file descriptor from runC.
-			master, err := cmsg.RecvFile(socket)
+			master, err := utils.RecvFile(socket)
 			if err != nil {
 				return
 			}

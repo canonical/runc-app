@@ -20,7 +20,6 @@ set -e
 # Project-specific options and functions. In *theory* you shouldn't need to
 # touch anything else in this script in order to use this elsewhere.
 : "${LIBSECCOMP_VERSION:=2.6.0}"
-: "${LIBPATHRS_VERSION:=0.2.5}"
 project="runc"
 root="$(readlink -f "$(dirname "${BASH_SOURCE[0]}")/..")"
 
@@ -41,16 +40,14 @@ function build_project() {
 	shift
 	local arches=("$@")
 
-	# Assume that if /opt/runc-dylibs exists, then we are running via
-	# Dockerfile, and thus seccomp is already built. Otherwise, build it now.
-	local dylibdir=/opt/runc-dylibs
-	if ! [ -d "$dylibdir" ]; then
-		trap 'rm -rf "$dylibdir"' EXIT
-		dylibdir="$(mktemp -d)"
+	# Assume that if /opt/libseccomp exists, then we are run
+	# via Dockerfile, and seccomp is already built.
+	local seccompdir=/opt/libseccomp temp_dir
+	if [ ! -d "$seccompdir" ]; then
+		temp_dir="$(mktemp -d)"
+		seccompdir="$temp_dir"
 		# Download and build libseccomp.
-		"$root/script/build-seccomp.sh" "$LIBSECCOMP_VERSION" "$dylibdir" "${arches[@]}"
-		# Download and build libpathrs.
-		"$root/script/build-libpathrs.sh" "$LIBPATHRS_VERSION" "$dylibdir" "${arches[@]}"
+		"$root/script/seccomp.sh" "$LIBSECCOMP_VERSION" "$seccompdir" "${arches[@]}"
 	fi
 
 	# For reproducible builds, add these to EXTRA_LDFLAGS:
@@ -73,7 +70,7 @@ function build_project() {
 		CFLAGS="$original_cflags"
 		set_cross_vars "$arch"
 		make -C "$root" \
-			PKG_CONFIG_PATH="$dylibdir/$arch/lib/pkgconfig" \
+			PKG_CONFIG_PATH="$seccompdir/$arch/lib/pkgconfig" \
 			"${make_args[@]}"
 		"$STRIP" "$root/$project"
 		mv "$root/$project" "$builddir/$project.$arch"
@@ -87,8 +84,13 @@ function build_project() {
 		exit 1
 	fi
 
-	# Copy dylib source tarballs.
-	cp "$dylibdir"/src/* "$builddir"
+	# Copy libseccomp source tarball.
+	cp "$seccompdir"/src/* "$builddir"
+
+	# Clean up.
+	if [ -n "$tempdir" ]; then
+		rm -rf "$tempdir"
+	fi
 }
 
 # End of the easy-to-configure portion.
@@ -159,6 +161,8 @@ done
 version="${version:-$(<"$root/VERSION")}"
 releasedir="${releasedir:-release/$version}"
 hashcmd="${hashcmd:-sha256sum}"
+# Suffixes of files to checksum/sign.
+suffixes=("${arches[@]}" tar.xz)
 
 log "creating $project release in '$releasedir'"
 log "  version: $version"
@@ -175,13 +179,11 @@ rm -rf "$releasedir" && mkdir -p "$releasedir"
 build_project "$releasedir/$project" "$native_arch" "${arches[@]}"
 
 # Generate new archive.
-git archive --format=tar --prefix="$project-$version/" "$commit" | xz >"$releasedir/$project-$version.tar.xz"
+git archive --format=tar --prefix="$project-$version/" "$commit" | xz >"$releasedir/$project.tar.xz"
 
 # Generate sha256 checksums for binaries and libseccomp tarball.
 (
 	cd "$releasedir"
-	# Add hash of all architecture binaries ($project.$arch).
-	"$hashcmd" "${arches[@]/#/$project.}" >>"$project.$hashcmd"
-	# Add hash of tarball ($project-$version.tar.xz).
-	"$hashcmd" "$project-$version.tar.xz" >>"$project.$hashcmd"
+	# Add $project. prefix to all suffixes.
+	"$hashcmd" "${suffixes[@]/#/$project.}" >"$project.$hashcmd"
 )

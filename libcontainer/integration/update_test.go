@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"bytes"
 	"os"
 	"strings"
 	"testing"
@@ -39,7 +40,7 @@ func testUpdateDevices(t *testing.T, systemd bool) {
 	}()
 	ok(t, err)
 
-	var buf strings.Builder
+	var buf bytes.Buffer
 	devCheck := &libcontainer.Process{
 		Cwd:    "/",
 		Args:   []string{"/bin/sh", "-c", "echo > /dev/full; cat /dev/null; true"},
@@ -59,7 +60,7 @@ func testUpdateDevices(t *testing.T, systemd bool) {
 	}
 	defaultDevices := config.Cgroups.Resources.Devices
 
-	for i := range 300 {
+	for i := 0; i < 300; i++ {
 		// Check the access
 		buf.Reset()
 		err = container.Run(devCheck)

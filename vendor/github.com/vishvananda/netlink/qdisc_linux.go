@@ -1,7 +1,6 @@
 package netlink
 
 import (
-	"errors"
 	"fmt"
 	"io/ioutil"
 	"strconv"
@@ -321,7 +320,7 @@ func qdiscPayload(req *nl.NetlinkRequest, qdisc Qdisc) error {
 	case *Sfq:
 		opt := nl.TcSfqQoptV1{}
 		opt.TcSfqQopt.Quantum = qdisc.Quantum
-		opt.TcSfqQopt.Perturb = qdisc.Perturb
+		opt.TcSfqQopt.Perturb = int32(qdisc.Perturb)
 		opt.TcSfqQopt.Limit = qdisc.Limit
 		opt.TcSfqQopt.Divisor = qdisc.Divisor
 
@@ -339,9 +338,6 @@ func qdiscPayload(req *nl.NetlinkRequest, qdisc Qdisc) error {
 // QdiscList gets a list of qdiscs in the system.
 // Equivalent to: `tc qdisc show`.
 // The list can be filtered by link.
-//
-// If the returned error is [ErrDumpInterrupted], results may be inconsistent
-// or incomplete.
 func QdiscList(link Link) ([]Qdisc, error) {
 	return pkgHandle.QdiscList(link)
 }
@@ -349,9 +345,6 @@ func QdiscList(link Link) ([]Qdisc, error) {
 // QdiscList gets a list of qdiscs in the system.
 // Equivalent to: `tc qdisc show`.
 // The list can be filtered by link.
-//
-// If the returned error is [ErrDumpInterrupted], results may be inconsistent
-// or incomplete.
 func (h *Handle) QdiscList(link Link) ([]Qdisc, error) {
 	req := h.newNetlinkRequest(unix.RTM_GETQDISC, unix.NLM_F_DUMP)
 	index := int32(0)
@@ -366,9 +359,9 @@ func (h *Handle) QdiscList(link Link) ([]Qdisc, error) {
 	}
 	req.AddData(msg)
 
-	msgs, executeErr := req.Execute(unix.NETLINK_ROUTE, unix.RTM_NEWQDISC)
-	if executeErr != nil && !errors.Is(executeErr, ErrDumpInterrupted) {
-		return nil, executeErr
+	msgs, err := req.Execute(unix.NETLINK_ROUTE, unix.RTM_NEWQDISC)
+	if err != nil {
+		return nil, err
 	}
 
 	var res []Qdisc
@@ -504,7 +497,7 @@ func (h *Handle) QdiscList(link Link) ([]Qdisc, error) {
 		res = append(res, qdisc)
 	}
 
-	return res, executeErr
+	return res, nil
 }
 
 func parsePfifoFastData(qdisc Qdisc, value []byte) error {
@@ -683,7 +676,7 @@ func parseSfqData(qdisc Qdisc, value []byte) error {
 	sfq := qdisc.(*Sfq)
 	opt := nl.DeserializeTcSfqQoptV1(value)
 	sfq.Quantum = opt.TcSfqQopt.Quantum
-	sfq.Perturb = opt.TcSfqQopt.Perturb
+	sfq.Perturb = uint8(opt.TcSfqQopt.Perturb)
 	sfq.Limit = opt.TcSfqQopt.Limit
 	sfq.Divisor = opt.TcSfqQopt.Divisor
 

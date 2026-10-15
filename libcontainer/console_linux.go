@@ -157,7 +157,7 @@ func mountConsole(peerPty *os.File) error {
 // dupStdio replaces stdio with the given peerPty.
 func dupStdio(peerPty *os.File) error {
 	for _, i := range []int{0, 1, 2} {
-		if err := linux.Dup3(int(peerPty.Fd()), i, 0); err != nil {
+		if err := unix.Dup3(int(peerPty.Fd()), i, 0); err != nil {
 			return err
 		}
 	}

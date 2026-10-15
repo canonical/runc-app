@@ -1,7 +1,3 @@
-// sd-helper is a command-line tool to provide some very minimal helpers to
-// communicate with systemd.
-//
-// This tool is only intended to be used within runc's integration tests.
 package main
 
 import (

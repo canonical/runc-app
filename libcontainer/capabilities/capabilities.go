@@ -1,13 +1,11 @@
 //go:build linux
 
-// Package capabilities provides helpers for managing Linux capabilities.
 package capabilities
 
 import (
 	"errors"
 	"fmt"
-	"maps"
-	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"syscall"
@@ -69,7 +67,7 @@ func New(capConfig *configs.Capabilities) (*Caps, error) {
 		return nil, err
 	}
 	if len(unknownCaps) > 0 {
-		logrus.Warn("ignoring unknown or unavailable capabilities: ", slices.Sorted(maps.Keys(unknownCaps)))
+		logrus.Warn("ignoring unknown or unavailable capabilities: ", mapKeys(unknownCaps))
 	}
 	return &c, nil
 }
@@ -88,6 +86,16 @@ func capSlice(caps []string, unknownCaps map[string]struct{}) []capability.Cap {
 		}
 	}
 	return out
+}
+
+// mapKeys returns the keys of input in sorted order
+func mapKeys(input map[string]struct{}) []string {
+	keys := make([]string, 0, len(input))
+	for c := range input {
+		keys = append(keys, c)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // Caps holds the capabilities for a container.

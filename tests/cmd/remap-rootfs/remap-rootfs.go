@@ -1,8 +1,3 @@
-// remap-rootfs is a command-line tool to remap the ownership of an OCI
-// bundle's rootfs to match the user namespace id-mapping of the bundle's
-// config.json.
-//
-// This tool is only intended to be used within runc's integration tests.
 package main
 
 import (
@@ -54,7 +49,7 @@ type inodeID struct {
 }
 
 func toInodeID(st *syscall.Stat_t) inodeID {
-	return inodeID{Dev: uint64(st.Dev), Ino: st.Ino} //nolint:unconvert // Dev is uint32 on e.g. MIPS.
+	return inodeID{Dev: st.Dev, Ino: st.Ino}
 }
 
 func remapRootfs(root string, uidMap, gidMap []specs.LinuxIDMapping) error {

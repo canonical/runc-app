@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"slices"
 	"strconv"
 	"strings"
 
@@ -80,8 +79,11 @@ var psCommand = cli.Command{
 				return fmt.Errorf("unable to parse pid: %w", err)
 			}
 
-			if slices.Contains(pids, p) {
-				fmt.Println(line)
+			for _, pid := range pids {
+				if pid == p {
+					fmt.Println(line)
+					break
+				}
 			}
 		}
 		return nil

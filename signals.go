@@ -117,7 +117,7 @@ func (h *signalHandler) forward(process *libcontainer.Process, tty *tty, detach 
 		default:
 			us := s.(unix.Signal)
 			logrus.Debugf("forwarding signal %d (%s) to %d", int(us), unix.SignalName(us), pid1)
-			if err := process.Signal(s); err != nil {
+			if err := unix.Kill(pid1, us); err != nil {
 				logrus.Error(err)
 			}
 		}

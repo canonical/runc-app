@@ -60,7 +60,7 @@ func rootlessEUIDMount(config *configs.Config) error {
 		if !strings.Contains(mount.Data, "id=") {
 			continue
 		}
-		for opt := range strings.SplitSeq(mount.Data, ",") {
+		for _, opt := range strings.Split(mount.Data, ",") {
 			if str, ok := strings.CutPrefix(opt, "uid="); ok {
 				uid, err := strconv.Atoi(str)
 				if err != nil {

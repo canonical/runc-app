@@ -85,8 +85,7 @@ stdin. If this option is used, all other options are ignored.
 (i.e. use unlimited swap).
 
 **--pids-limit** _num_
-: Set the maximum number of processes allowed in the container. Use **-1** to
-unset the limit.
+: Set the maximum number of processes allowed in the container.
 
 **--l3-cache-schema** _value_
 : Set the value for Intel RDT/CAT L3 cache schema.

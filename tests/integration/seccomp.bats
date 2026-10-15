@@ -102,11 +102,8 @@ function flags_value() {
 
 	# Get the list of flags supported by runc/seccomp/kernel,
 	# or "null" if no flags are supported or runc is too old.
-	#
-	# Filter out WAIT_KILLABLE_RECV as it requires a listener,
-	# and thus tested separately in seccomp-notify.bats.
 	mapfile -t flags < <(__runc features | jq -c '.linux.seccomp.supportedFlags' |
-		tr -d '[]\n' | tr ',' '\n' | grep -v 'WAIT_KILLABLE_RECV')
+		tr -d '[]\n' | tr ',' '\n')
 
 	# This is a set of all possible flag combinations to test.
 	declare -A TEST_CASES=(

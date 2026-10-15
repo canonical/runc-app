@@ -12,13 +12,16 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/docker/go-units"
+	"github.com/opencontainers/runc/libcontainer/configs"
 	"github.com/opencontainers/runc/libcontainer/intelrdt"
 	"github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/urfave/cli"
 )
 
-// TODO: replace with new(v) once Go < 1.26 is not supported.
-func mkPtr[T any](v T) *T { return &v }
+func i64Ptr(i int64) *int64   { return &i }
+func u64Ptr(i uint64) *uint64 { return &i }
+func u16Ptr(i uint16) *uint16 { return &i }
+func boolPtr(b bool) *bool    { return &b }
 
 var updateCommand = cli.Command{
 	Name:      "update",
@@ -145,9 +148,9 @@ other options are ignored.
 		}
 
 		r := specs.LinuxResources{
-			// nil and mkPtr(0) are not interchangeable
+			// nil and u64Ptr(0) are not interchangeable
 			Memory: &specs.LinuxMemory{
-				CheckBeforeUpdate: mkPtr(false), // constant
+				CheckBeforeUpdate: boolPtr(false), // constant
 			},
 			CPU:     &specs.LinuxCPU{},
 			BlockIO: &specs.LinuxBlockIO{},
@@ -177,7 +180,7 @@ other options are ignored.
 			}
 		} else {
 			if val := context.Int("blkio-weight"); val != 0 {
-				r.BlockIO.Weight = mkPtr(uint16(val))
+				r.BlockIO.Weight = u16Ptr(uint16(val))
 			}
 			if val := context.String("cpuset-cpus"); val != "" {
 				r.CPU.Cpus = val
@@ -190,7 +193,7 @@ other options are ignored.
 				if err != nil {
 					return fmt.Errorf("invalid value for cpu-idle: %w", err)
 				}
-				r.CPU.Idle = mkPtr(idle)
+				r.CPU.Idle = i64Ptr(idle)
 			}
 
 			for _, pair := range []struct {
@@ -250,19 +253,17 @@ other options are ignored.
 				}
 			}
 
-			if context.IsSet("pids-limit") {
-				r.Pids.Limit = mkPtr(int64(context.Int("pids-limit")))
-			}
+			r.Pids.Limit = int64(context.Int("pids-limit"))
 		}
 
 		// Fix up values
 		if r.Memory.Limit != nil && *r.Memory.Limit == -1 && r.Memory.Swap == nil {
 			// To avoid error "unable to set swap limit without memory limit"
-			r.Memory.Swap = mkPtr[int64](0)
+			r.Memory.Swap = i64Ptr(0)
 		}
 		if r.CPU.Idle != nil && r.CPU.Shares == nil {
 			// To avoid error "failed to write \"4\": write /sys/fs/cgroup/runc-cgroups-integration-test/test-cgroup-7341/cpu.weight: invalid argument"
-			r.CPU.Shares = mkPtr[uint64](0)
+			r.CPU.Shares = u64Ptr(0)
 		}
 
 		if (r.Memory.Kernel != nil) || (r.Memory.KernelTCP != nil) { //nolint:staticcheck // Ignore SA1019. Need to keep deprecated package for compatibility.
@@ -376,7 +377,15 @@ other options are ignored.
 			// In update command, we could re-enable through IntelRdtManager.Apply()
 			// and then update intelrdt constraint.
 			if config.IntelRdt == nil {
-				return errors.New("updating a non-existent Intel RDT configuration is not supported")
+				state, err := container.State()
+				if err != nil {
+					return err
+				}
+				config.IntelRdt = &configs.IntelRdt{}
+				intelRdtManager := intelrdt.NewManager(&config, container.ID(), state.IntelRdtPath)
+				if err := intelRdtManager.Apply(state.InitProcessPid); err != nil {
+					return err
+				}
 			}
 			if l3CacheSchema != "" {
 				config.IntelRdt.L3CacheSchema = l3CacheSchema

@@ -6,15 +6,16 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"sync"
 	_ "unsafe" // for go:linkname
 
+	securejoin "github.com/cyphar/filepath-securejoin"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
 
-	"github.com/opencontainers/runc/internal/linux"
 	"github.com/opencontainers/runc/internal/pathrs"
 )
 
@@ -112,7 +113,7 @@ func runtime_IsPollDescriptor(fd uintptr) bool //nolint:revive
 //
 // NOTE: That this function is incredibly dangerous to use in most Go code, as
 // closing file descriptors from underneath *os.File handles can lead to very
-// bad behaviour (the closed file descriptor can be reused and then any
+// bad behaviour (the closed file descriptor can be re-used and then any
 // *os.File operations would apply to the wrong file). This function is only
 // intended to be called from the last stage of runc init.
 func UnsafeCloseFrom(minFd int) error {
@@ -142,6 +143,44 @@ func NewSockPair(name string) (parent, child *os.File, err error) {
 		return nil, nil, err
 	}
 	return os.NewFile(uintptr(fds[1]), name+"-p"), os.NewFile(uintptr(fds[0]), name+"-c"), nil
+}
+
+// WithProcfd runs the passed closure with a procfd path (/proc/self/fd/...)
+// corresponding to the unsafePath resolved within the root. Before passing the
+// fd, this path is verified to have been inside the root -- so operating on it
+// through the passed fdpath should be safe. Do not access this path through
+// the original path strings, and do not attempt to use the pathname outside of
+// the passed closure (the file handle will be freed once the closure returns).
+//
+// Deprecated: This function is an internal implementation detail of runc and
+// is no longer used. It will be removed in runc 1.5.
+func WithProcfd(root, unsafePath string, fn func(procfd string) error) error {
+	// Remove the root then forcefully resolve inside the root.
+	unsafePath = pathrs.LexicallyStripRoot(root, unsafePath)
+	fullPath, err := securejoin.SecureJoin(root, unsafePath)
+	if err != nil {
+		return fmt.Errorf("resolving path inside rootfs failed: %w", err)
+	}
+
+	procSelfFd, closer := ProcThreadSelf("fd/")
+	defer closer()
+
+	// Open the target path.
+	fh, err := os.OpenFile(fullPath, unix.O_PATH|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return fmt.Errorf("open o_path procfd: %w", err)
+	}
+	defer fh.Close()
+
+	procfd := filepath.Join(procSelfFd, strconv.Itoa(int(fh.Fd())))
+	// Double-check the path is the one we expected.
+	if realpath, err := os.Readlink(procfd); err != nil {
+		return fmt.Errorf("procfd verification failed: %w", err)
+	} else if realpath != fullPath {
+		return fmt.Errorf("possibly malicious path detected -- refusing to operate on %s", realpath)
+	}
+
+	return fn(procfd)
 }
 
 // WithProcfdFile is a very minimal wrapper around [ProcThreadSelfFd]. The
@@ -239,9 +278,9 @@ func Openat(dir *os.File, path string, flags int, mode uint32) (*os.File, error)
 	}
 	flags |= unix.O_CLOEXEC
 
-	fd, err := linux.Openat(dirFd, path, flags, mode)
+	fd, err := unix.Openat(dirFd, path, flags, mode)
 	if err != nil {
-		return nil, err
+		return nil, &os.PathError{Op: "openat", Path: path, Err: err}
 	}
 	return os.NewFile(uintptr(fd), dir.Name()+"/"+path), nil
 }

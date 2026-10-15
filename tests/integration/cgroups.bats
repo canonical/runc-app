@@ -113,15 +113,11 @@ function setup() {
 	[[ ${lines[0]} = "0::/foo" ]]
 
 	# teardown: remove "/foo"
-	cat <<'EOF' | runc exec test_cgroups_group sh -eux
-echo -memory > /sys/fs/cgroup/cgroup.subtree_control
-for pid in $(cat /sys/fs/cgroup/foo/cgroup.procs); do
-	echo $pid > /sys/fs/cgroup/cgroup.procs || true
-done
-rmdir /sys/fs/cgroup/foo
-EOF
+	# shellcheck disable=SC2016
+	runc exec test_cgroups_group sh -uxc 'echo -memory > /sys/fs/cgroup/cgroup.subtree_control; for f in $(cat /sys/fs/cgroup/foo/cgroup.procs); do echo $f > /sys/fs/cgroup/cgroup.procs; done; rmdir /sys/fs/cgroup/foo'
 	runc exec test_cgroups_group test ! -d /sys/fs/cgroup/foo
 	[ "$status" -eq 0 ]
+	#
 }
 
 @test "runc run (cgroup v1 + unified resources should fail)" {
@@ -324,37 +320,6 @@ convert_hugetlb_size() {
 	done
 }
 
-# https://github.com/opencontainers/runc/issues/4014.
-@test "runc run (pids.limit=0 means 1)" {
-	[ $EUID -ne 0 ] && requires rootless_cgroup
-	requires cgroups_pids
-
-	set_cgroups_path
-	update_config '.linux.resources.pids.limit = 0'
-
-	runc run -d --console-socket "$CONSOLE_SOCKET" test_pids
-	[ "$status" -eq 0 ]
-	# systemd doesn't support TasksMax=0 so runc will silently remap it to 1
-	# (for consistency, we do this for systemd *and* cgroupfs).
-	check_cgroup_value "pids.max" "1"
-	check_systemd_value "TasksMax" "1"
-}
-
-# https://github.com/opencontainers/runc/issues/4014.
-@test "runc run (pids.limit=-1 means unlimited)" {
-	[ $EUID -ne 0 ] && requires rootless_cgroup
-	requires cgroups_pids
-
-	set_cgroups_path
-	update_config '.linux.resources.pids.limit = -1'
-
-	runc run -d --console-socket "$CONSOLE_SOCKET" test_pids
-	[ "$status" -eq 0 ]
-	check_cgroup_value "pids.max" "max"
-	# systemd < v227 shows UINT64_MAX instead of "infinity".
-	check_systemd_value "TasksMax" "infinity" "18446744073709551615"
-}
-
 @test "runc run (cgroup v2 resources.unified only)" {
 	requires root cgroups_v2
 
@@ -525,7 +490,7 @@ convert_hugetlb_size() {
 		runc resume ct1
 	) &
 
-	# Exec should succeed (once the container is resumed).
+	# Exec should not timeout or succeed.
 	runc exec --ignore-paused ct1 echo ok
 	[ "$status" -eq 0 ]
 	[ "$output" = "ok" ]

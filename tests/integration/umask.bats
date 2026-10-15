@@ -13,6 +13,7 @@ function teardown() {
 @test "umask" {
 	update_config '.process.user += {"umask":63}'
 
+	# run busybox detached
 	runc run -d --console-socket "$CONSOLE_SOCKET" test_busybox
 	[ "$status" -eq 0 ]
 

@@ -11,6 +11,7 @@ function teardown() {
 }
 
 @test "runc exec" {
+	# run busybox detached
 	runc run -d --console-socket "$CONSOLE_SOCKET" test_busybox
 	[ "$status" -eq 0 ]
 
@@ -41,6 +42,7 @@ function teardown() {
 }
 
 @test "runc exec --pid-file" {
+	# run busybox detached
 	runc run -d --console-socket "$CONSOLE_SOCKET" test_busybox
 	[ "$status" -eq 0 ]
 
@@ -49,7 +51,9 @@ function teardown() {
 	echo text echoed = "'""${output}""'"
 	[[ "${output}" == *"Hello from exec"* ]]
 
+	# check pid.txt was generated
 	[ -e pid.txt ]
+
 	output=$(cat pid.txt)
 	[[ "$output" =~ [0-9]+ ]]
 	[[ "$output" != $(__runc state test_busybox | jq '.pid') ]]
@@ -57,9 +61,11 @@ function teardown() {
 
 @test "runc exec --pid-file with new CWD" {
 	bundle="$(pwd)"
+	# create pid_file directory as the CWD
 	mkdir pid_file
 	cd pid_file
 
+	# run busybox detached
 	runc run -d -b "$bundle" --console-socket "$CONSOLE_SOCKET" test_busybox
 	[ "$status" -eq 0 ]
 
@@ -68,13 +74,16 @@ function teardown() {
 	echo text echoed = "'""${output}""'"
 	[[ "${output}" == *"Hello from exec"* ]]
 
+	# check pid.txt was generated
 	[ -e pid.txt ]
+
 	output=$(cat pid.txt)
 	[[ "$output" =~ [0-9]+ ]]
 	[[ "$output" != $(__runc state test_busybox | jq '.pid') ]]
 }
 
 @test "runc exec ls -la" {
+	# run busybox detached
 	runc run -d --console-socket "$CONSOLE_SOCKET" test_busybox
 	[ "$status" -eq 0 ]
 
@@ -86,6 +95,7 @@ function teardown() {
 }
 
 @test "runc exec ls -la with --cwd" {
+	# run busybox detached
 	runc run -d --console-socket "$CONSOLE_SOCKET" test_busybox
 	[ "$status" -eq 0 ]
 
@@ -95,6 +105,7 @@ function teardown() {
 }
 
 @test "runc exec --env" {
+	# run busybox detached
 	runc run -d --console-socket "$CONSOLE_SOCKET" test_busybox
 	[ "$status" -eq 0 ]
 
@@ -108,6 +119,7 @@ function teardown() {
 	# --user can't work in rootless containers that don't have idmap.
 	[ $EUID -ne 0 ] && requires rootless_idmap
 
+	# run busybox detached
 	runc run -d --console-socket "$CONSOLE_SOCKET" test_busybox
 	[ "$status" -eq 0 ]
 
@@ -147,6 +159,7 @@ function teardown() {
 @test "runc exec --additional-gids" {
 	requires root
 
+	# run busybox detached
 	runc run -d --console-socket "$CONSOLE_SOCKET" test_busybox
 	[ "$status" -eq 0 ]
 
@@ -158,6 +171,7 @@ function teardown() {
 }
 
 @test "runc exec --preserve-fds" {
+	# run busybox detached
 	runc run -d --console-socket "$CONSOLE_SOCKET" test_busybox
 	[ "$status" -eq 0 ]
 
@@ -212,17 +226,17 @@ function check_exec_debug() {
 	# Check we can't join parent cgroup.
 	runc exec --cgroup ".." test_busybox cat /proc/self/cgroup
 	[ "$status" -ne 0 ]
-	[[ "$output" == *"bad sub cgroup path"* ]]
+	[[ "$output" == *" .. is not a sub cgroup path"* ]]
 
 	# Check we can't join non-existing subcgroup.
 	runc exec --cgroup nonexistent test_busybox cat /proc/self/cgroup
 	[ "$status" -ne 0 ]
-	[[ "$output" == *" adding pid "*"o such file or directory"* ]]
+	[[ "$output" == *" adding pid "*"/nonexistent/cgroup.procs: no such file "* ]]
 
 	# Check we can't join non-existing subcgroup (for a particular controller).
 	runc exec --cgroup cpu:nonexistent test_busybox cat /proc/self/cgroup
 	[ "$status" -ne 0 ]
-	[[ "$output" == *" adding pid "*"o such file or directory"* ]]
+	[[ "$output" == *" adding pid "*"/nonexistent/cgroup.procs: no such file "* ]]
 
 	# Check we can't specify non-existent controller.
 	runc exec --cgroup whaaat:/ test_busybox true
@@ -263,12 +277,12 @@ function check_exec_debug() {
 	# Check we can't join parent cgroup.
 	runc exec --cgroup ".." test_busybox cat /proc/self/cgroup
 	[ "$status" -ne 0 ]
-	[[ "$output" == *"bad sub cgroup path"* ]]
+	[[ "$output" == *" .. is not a sub cgroup path"* ]]
 
 	# Check we can't join non-existing subcgroup.
 	runc exec --cgroup nonexistent test_busybox cat /proc/self/cgroup
 	[ "$status" -ne 0 ]
-	[[ "$output" == *" cgroup"*"o such file or directory"* ]]
+	[[ "$output" == *" adding pid "*"/nonexistent/cgroup.procs: no such file "* ]]
 
 	# Check we can join top-level cgroup (implicit).
 	runc exec test_busybox grep '^0::/$' /proc/self/cgroup
@@ -304,7 +318,7 @@ function check_exec_debug() {
 	# Check that --cgroup / disables the init cgroup fallback.
 	runc exec --cgroup / test_busybox true
 	[ "$status" -ne 0 ]
-	[[ "$output" == *" adding pid "*" to cgroups"*"evice or resource busy"* ]]
+	[[ "$output" == *" adding pid "*" to cgroups"*"/cgroup.procs: device or resource busy"* ]]
 
 	# Check that explicit --cgroup foobar works.
 	runc exec --cgroup foobar test_busybox grep '^0::/foobar$' /proc/self/cgroup
@@ -319,41 +333,6 @@ function check_exec_debug() {
 	[ "$status" -eq 0 ]
 	runc exec --cgroup second test_busybox grep -w second /proc/self/cgroup
 	[ "$status" -eq 0 ]
-}
-
-# https://github.com/opencontainers/runc/issues/5089
-@test "runc exec [init changes cgroup]" {
-	requires root cgroups_v2
-
-	NEW_CGROUP_REL=/runc-tst-$$
-	NEW_CGROUP=/sys/fs/cgroup$NEW_CGROUP_REL
-	mkdir $NEW_CGROUP
-
-	# The container is placed into a $CGROUP_V2_PATH cgroup.
-	set_cgroups_path
-	# And upon the start it moves itself into $NEW_CGROUP.
-	set_cgroup_mount_writable
-	update_config '	  .linux.namespaces -= [{"type": "cgroup"}]
-			| .process.args = ["sh", "-c", "echo 1 > '$NEW_CGROUP'/cgroup.procs && exec sleep 1h"]'
-
-	runc run -d --console-socket "$CONSOLE_SOCKET" test_busybox
-	[ $status -eq 0 ]
-	testcontainer test_busybox running
-	sleep 1
-	# Remove the original container cgroup. If systemd cgroup manager is used by runc,
-	# the cgroup might have already be deleted by systemd, so we ignore rmdir errors.
-	rmdir "$CGROUP_V2_PATH" || true
-	test -d "$CGROUP_V2_PATH" && false
-
-	# Test that runc exec is able to fallback to container's init cgroup
-	# even if the original cgroup is gone.
-	runc exec test_busybox cat /proc/self/cgroup
-	[ $status -eq 0 ]
-	[ "$output" = "0::$NEW_CGROUP_REL" ]
-
-	# Cleanup.
-	runc delete -f test_busybox
-	rmdir "$NEW_CGROUP"
 }
 
 @test "runc exec [execve error]" {

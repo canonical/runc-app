@@ -51,7 +51,7 @@ func Create(root, id string, config *configs.Config) (*Container, error) {
 	}
 	if _, err := os.Stat(stateDir); err == nil {
 		return nil, ErrExist
-	} else if !errors.Is(err, os.ErrNotExist) {
+	} else if !os.IsNotExist(err) {
 		return nil, err
 	}
 
@@ -154,7 +154,7 @@ func loadState(root string) (*State, error) {
 	}
 	f, err := os.Open(stateFilePath)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
+		if os.IsNotExist(err) {
 			return nil, ErrNotExist
 		}
 		return nil, err
@@ -195,7 +195,7 @@ func validateID(id string) error {
 	}
 
 	// Allowed characters: 0-9 A-Z a-z _ + - .
-	for i := range len(id) {
+	for i := 0; i < len(id); i++ {
 		c := id[i]
 		switch {
 		case c >= 'a' && c <= 'z':
