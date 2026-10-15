@@ -1,3 +1,9 @@
+runc-app (1.5.1-0ubuntu2~26.04.1) resolute; urgency=medium
+
+  * Backport from stonking to resolute (LP: #2153483)
+
+ -- Athos Ribeiro <athos@ubuntu.com>  Thu, 15 Oct 2026 00:08:39 -0300
+
 runc-app (1.5.1-0ubuntu2) stonking; urgency=medium
 
   * Use /usr/bin/busybox-static in autopkgtest (LP: #2167087)
