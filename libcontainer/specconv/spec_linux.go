@@ -14,16 +14,16 @@ import (
 
 	systemdDbus "github.com/coreos/go-systemd/v22/dbus"
 	dbus "github.com/godbus/dbus/v5"
+	"github.com/opencontainers/runtime-spec/specs-go"
+	"github.com/sirupsen/logrus"
+	"golang.org/x/sys/unix"
+
 	"github.com/opencontainers/cgroups"
 	devices "github.com/opencontainers/cgroups/devices/config"
+	"github.com/opencontainers/runc/internal/pathrs"
 	"github.com/opencontainers/runc/libcontainer/configs"
 	"github.com/opencontainers/runc/libcontainer/internal/userns"
 	"github.com/opencontainers/runc/libcontainer/seccomp"
-	libcontainerUtils "github.com/opencontainers/runc/libcontainer/utils"
-	"github.com/opencontainers/runtime-spec/specs-go"
-	"github.com/sirupsen/logrus"
-
-	"golang.org/x/sys/unix"
 )
 
 var (
@@ -746,7 +746,7 @@ func CreateCgroupConfig(opts *CreateOpts, defaultDevs []*devices.Device) (*cgrou
 		if useSystemdCgroup {
 			myCgroupPath = spec.Linux.CgroupsPath
 		} else {
-			myCgroupPath = libcontainerUtils.CleanPath(spec.Linux.CgroupsPath)
+			myCgroupPath = pathrs.LexicallyCleanPath(spec.Linux.CgroupsPath)
 		}
 	}
 
@@ -1112,11 +1112,11 @@ func parseMountOptions(options []string) *configs.Mount {
 			} else {
 				recAttrSet |= f.flag
 				recAttrClr &= ^f.flag
-				if f.flag&unix.MOUNT_ATTR__ATIME == f.flag {
-					// https://man7.org/linux/man-pages/man2/mount_setattr.2.html
-					// "cannot simply specify the access-time setting in attr_set, but must also include MOUNT_ATTR__ATIME in the attr_clr field."
-					recAttrClr |= unix.MOUNT_ATTR__ATIME
-				}
+			}
+			if f.flag&unix.MOUNT_ATTR__ATIME == f.flag {
+				// https://man7.org/linux/man-pages/man2/mount_setattr.2.html
+				// "cannot simply specify the access-time setting in attr_set, but must also include MOUNT_ATTR__ATIME in the attr_clr field."
+				recAttrClr |= unix.MOUNT_ATTR__ATIME
 			}
 		} else if f, exists := extensionFlags[o]; exists {
 			if f.clear {
